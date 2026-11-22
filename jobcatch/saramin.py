@@ -8,11 +8,12 @@ from __future__ import annotations
 
 import re
 import time
-from dataclasses import dataclass, field
 from datetime import date
 
 import requests
 from bs4 import BeautifulSoup
+
+from .models import Detail, Job
 
 BASE = "https://www.saramin.co.kr"
 SEARCH_URL = BASE + "/zf_user/search/recruit"
@@ -24,26 +25,6 @@ USER_AGENT = (
 )
 
 
-@dataclass
-class Job:
-    source: str
-    job_id: str
-    title: str
-    company: str
-    url: str
-    deadline_text: str
-    deadline: date | None
-    location: str
-    career: str
-    education: str
-    employment: str
-    salary: str
-    sectors: list[str] = field(default_factory=list)
-    posted_text: str = ""
-
-    @property
-    def key(self) -> str:
-        return f"{self.source}:{self.job_id}"
 
 
 _DEADLINE_RE = re.compile(r"~\s*(\d{1,2})/(\d{1,2})")
@@ -100,27 +81,34 @@ def parse_search_page(html: str, today: date) -> list[Job]:
     return jobs
 
 
-def fetch(search: dict, max_pages: int, delay_sec: float, today: date) -> list[Job]:
-    """검색 조건 하나로 최대 max_pages 페이지를 읽는다."""
-    session = requests.Session()
-    session.headers["User-Agent"] = USER_AGENT
+_EXP_CD = {"신입": "1", "경력": "2"}
+
+
+def search_params(keyword: str, career: list[str], page: int) -> dict:
+    """지역은 넣지 않는다: 수집 후 지역 · 통근 기준으로 거른다."""
+    codes = [_EXP_CD[c] for c in ("신입", "경력") if c in career]
     params = {
-        "searchword": search["keyword"],
+        "searchword": keyword,
         "recruitSort": "reg_dt",  # 최신 등록순
         "recruitPageCount": 40,
+        "recruitPage": page,
     }
-    if search.get("exp_cd"):
-        params["exp_cd"] = search["exp_cd"]
-    if search.get("loc_mcd"):
-        params["loc_mcd"] = search["loc_mcd"]
-    params.update(search.get("extra_params", {}))
+    if codes:
+        params["exp_cd"] = ",".join(codes)
+    return params
 
+
+def fetch(keyword: str, career: list[str], max_pages: int, delay_sec: float, today: date) -> list[Job]:
+    """검색어 하나로 최대 max_pages 페이지를 읽는다."""
+    session = requests.Session()
+    session.headers["User-Agent"] = USER_AGENT
     found: list[Job] = []
     for page in range(1, max_pages + 1):
         if page > 1:
             time.sleep(delay_sec)
-        params["recruitPage"] = page
-        resp = session.get(SEARCH_URL, params=params, timeout=20, allow_redirects=False)
+        resp = session.get(
+            SEARCH_URL, params=search_params(keyword, career, page), timeout=20, allow_redirects=False
+        )
         if resp.status_code != 200:
             raise RuntimeError(f"사람인 응답 {resp.status_code} (page {page})")
         jobs = parse_search_page(resp.text, today)
@@ -128,3 +116,33 @@ def fetch(search: dict, max_pages: int, delay_sec: float, today: date) -> list[J
         if len(jobs) < 40:
             break
     return found
+
+
+DETAIL_URL = BASE + "/zf_user/jobs/view"
+
+
+def parse_detail(html: str, today: date) -> Detail:
+    """상세 페이지의 근무지위치(.jv_location): 주소와 좌표."""
+    soup = BeautifulSoup(html, "html.parser")
+    loc = soup.select_one(".jv_location")
+    if not loc:
+        return Detail()
+    address = loc.get("data-address") or _text(loc.select_one(".txt_adr"))
+    address = re.sub(r"^\(\d{5}\)\s*", "", address.strip())
+    coords = None
+    try:
+        lon, lat = float(loc.get("data-longitude", "")), float(loc.get("data-latitude", ""))
+        if lon and lat:
+            coords = (lon, lat)
+    except ValueError:
+        pass
+    return Detail(address=" ".join(address.split()), coords=coords)
+
+
+def fetch_detail(job_id: str, today: date) -> Detail:
+    resp = requests.get(
+        DETAIL_URL, params={"rec_idx": job_id}, headers={"User-Agent": USER_AGENT}, timeout=20
+    )
+    if resp.status_code != 200:
+        raise RuntimeError(f"사람인 상세 응답 {resp.status_code}")
+    return parse_detail(resp.text, today)
