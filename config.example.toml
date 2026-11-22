@@ -1,0 +1,45 @@
+# Job-Catch 검색 기준 예시
+#
+# 쓰는 법
+# - 로컬: 이 파일을 config.toml 로 복사해서 고칩니다 (config.toml 은 커밋되지 않습니다).
+# - GitHub Actions: 고친 내용 전체를 저장소 Settings → Secrets and variables → Actions →
+#   Variables 의 JOBCATCH_CONFIG 에 붙여 넣습니다.
+# 공개 저장소에는 실제 기준(학력·경력·집 주소)을 커밋하지 마세요.
+
+[run]
+max_pages = 2              # 검색어 하나당 읽을 페이지 수
+delay_sec = 2.0            # 사이트 요청 사이 대기 시간(초)
+max_cards_per_track = 30   # 메일에 갈래별로 싣는 최대 공고 수
+
+[common]
+education = "초대졸"        # 고졸 / 초대졸 / 대졸 / 석사 / 박사 — 이 학력으로 지원 가능한 공고만
+my_career_months = 36       # 내 경력(개월). 경력 공고의 최소 요구 경력과 비교 (신입이면 0)
+
+# 통근 시간 (KAKAO_REST_KEY 와 home_address 가 있을 때만 사용)
+home_address = "서울 중구 세종대로 110"   # 예시 주소. 내 집 도로명 주소로 바꾸세요
+commute_limit_min = 60      # 대중교통 이 시간(분) 이내면 통과
+commute_soft_min = 75       # 이 시간까지는 "통근 확인" 표시로 남기고, 넘으면 제외
+max_detail_lookups = 60     # 한 번 실행에 상세 페이지(근무지 주소)를 읽을 최대 공고 수
+
+# 지역 목록: 통근 시간을 못 구했을 때 쓰는 예비 기준. 앞부분 일치 ("경기 성남시" = 성남시 전체)
+allow_locations = [
+  "서울 중구", "서울 종로구", "서울 강남구", "경기 성남시",
+]
+
+exclude_words = ["영업", "텔레마케팅", "강사"]   # 제목·회사·직무에 있으면 제외
+exclude_companies = []                          # 제외할 회사 이름
+exclude_employment = ["파견직", "프리랜서"]      # 제외할 고용형태
+
+# 갈래: 무엇을 어느 사이트에서 찾을지. [[track]] 블록을 복사해서 늘릴 수 있습니다.
+[[track]]
+name = "기구설계"
+sites = ["saramin"]               # saramin / jobkorea
+keywords = ["기구설계", "장비설계"]
+career = ["신입", "경력"]          # 경력 공고는 최소 요구 경력 ≤ my_career_months 만
+
+[[track]]
+name = "개발 전환"
+sites = ["jobkorea"]
+keywords = ["백엔드", "풀스택"]
+career = ["신입"]                 # 경력무관 포함
+include_any = []                  # 이 갈래만의 추가 조건: 하나라도 들어가야 함 (비우면 통과)
