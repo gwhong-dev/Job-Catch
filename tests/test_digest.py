@@ -210,6 +210,33 @@ class CommuteTest(unittest.TestCase):
         self.assertEqual(new[0].flags, [])
         self.assertEqual(calls, ["1", "2"])  # 지역 목록으로 빠지는 공고는 조회 안 함
 
+    def test_excluded_after_lookup_reported(self):
+        kakao = FakeKakao({(1.0, 1.0): 30, (1.0, 2.0): 90})
+        d, new = build(collected(job("1"), job("2")), self.cfg(), {}, TODAY,
+                       details={"saramin": CountingDetails()}, kakao=kakao, sleep=NO_SLEEP)
+        self.assertEqual([j.job_id for j in new], ["1"])
+        self.assertEqual([j.job_id for j in d.excluded_after_lookup], ["2"])
+
+    def test_excluded_entry_skipped_and_not_closing(self):
+        entries = {"saramin:2": Entry("제외", "c", "u", "saramin", "설계", TODAY + timedelta(days=2), TODAY,
+                                      excluded=True)}
+        details = CountingDetails()
+        d, new = build(collected(job("2")), self.cfg(), entries, TODAY, details={"saramin": details},
+                       kakao=FakeKakao({}), sleep=NO_SLEEP)
+        self.assertEqual(details.calls, [])
+        self.assertEqual(new, [])
+        self.assertEqual(d.closing, [])
+
+    def test_routes_never_found_is_failure(self):
+        d, _ = build(collected(job("1"), job("2"), job("3")), self.cfg(), {}, TODAY,
+                     details={"saramin": CountingDetails()}, kakao=FakeKakao({}), sleep=NO_SLEEP)
+        self.assertTrue(d.commute_failed)
+
+    def test_lookup_cap_counted(self):
+        d, _ = build(collected(job("1"), job("2"), job("3")), self.cfg(max_detail_lookups=1), {}, TODAY,
+                     details={"saramin": CountingDetails()}, kakao=FakeKakao({(1.0, 1.0): 30}), sleep=NO_SLEEP)
+        self.assertEqual(d.unchecked_by_cap, 2)
+
     def test_no_kakao_uses_region_list(self):
         details = CountingDetails()
         _, new = build(collected(job("1")), self.cfg(), {}, TODAY, details={"saramin": details},

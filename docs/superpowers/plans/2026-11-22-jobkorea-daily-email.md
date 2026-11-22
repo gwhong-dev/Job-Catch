@@ -339,12 +339,12 @@
 - 워크플로:
   - `on: schedule: - cron: "30 21 * * *"` 와 `workflow_dispatch`
   - `permissions: contents: read`
-  - 단계: checkout → setup-python 3.12 (pip 캐시) → `pip install -r requirements.txt` → `actions/cache/restore@v4` (`path: data/seen.json`, `key: seen-${{ github.run_id }}`, `restore-keys: seen-`) → `python run.py` (env: `JOBCATCH_CONFIG: ${{ vars.JOBCATCH_CONFIG }}`, `GMAIL_USER`/`GMAIL_APP_PASSWORD`/`MAIL_TO`/`KAKAO_REST_KEY` 는 `secrets.*`; run.py 는 `KAKAO_REST_KEY` 가 비어 있지 않을 때만 `Kakao` 를 만든다) → `actions/cache/save@v4` (`if: success()`, 같은 path, `key: seen-${{ github.run_id }}`)
+  - 단계: checkout → setup-python 3.12 (pip 캐시) → `pip install -r requirements.txt` → `actions/cache/restore@v4` (`path: data/seen.json`, `key: seen-${{ github.run_id }}`, `restore-keys: seen-`) → `python run.py` (env: `JOBCATCH_CONFIG: ${{ secrets.JOBCATCH_CONFIG }}`, 나머지도 `secrets.*`; run.py 는 `KAKAO_REST_KEY` 가 비어 있지 않을 때만 `Kakao` 를 만든다) → `actions/cache/save@v4` (`if: success()`, 같은 path, `key: seen-${{ github.run_id }}`)
   - `pull_request` 트리거는 두지 않는다
 - README: "진행 상황" 체크 갱신, "내 저장소에서 쓰기" 절(스펙 §9 의 4단계, 설정 이름 4개, 앱 비밀번호 만드는 곳 `https://myaccount.google.com/apppasswords`), "로컬에서 시험" 절(`cp config.example.toml config.toml`, `python run.py --dry-run`), 공개 저장소에서 기준을 커밋하지 말 것 안내
 
 - [ ] **Step 1: 워크플로 문법 확인** — `python -c "import yaml,sys; yaml.safe_load(open('.github/workflows/daily.yml', encoding='utf-8'))"` (PyYAML 없으면 `pip install pyyaml` 후) → 오류 없음
 - [ ] **Step 2: README 작성**
 - [ ] **Step 3: 커밋 · push · PR** — `"매일 아침 실행 워크플로와 사용 안내 추가"`, PR 본문 끝에 `🤖 Generated with [Claude Code](https://claude.com/claude-code)`
-- [ ] **Step 4: 사용자 작업 안내** — Gmail 앱 비밀번호 만들기, Secret 3개 · Variable 1개 등록 (값은 사용자가 직접 입력)
+- [ ] **Step 4: 사용자 작업 안내** — Gmail 앱 비밀번호 만들기, Secret 4~5개 등록 (값은 사용자가 직접 입력)
 - [ ] **Step 5: 실제 시험** — 등록 후 `gh workflow run daily.yml` → `gh run watch` → 성공, 메일 도착을 사용자에게 확인. 사이트가 막혀 경고 메일이 오면 스펙 §3 대로 작업 스케줄러 방식을 새 작업으로 제안.

@@ -56,6 +56,25 @@ class ConfigTest(unittest.TestCase):
         with self.assertRaises(ConfigError):
             load_config({"JOBCATCH_CONFIG": "[run]\nmax_pages = 1\n"}, self.path)
 
+    def test_bad_education_rejected(self):
+        with self.assertRaises(ConfigError):
+            load_config({"JOBCATCH_CONFIG": '[common]\neducation = "대학교"\n' + MIN.format(name="A")},
+                        self.path)
+
+    def test_error_hides_track_name(self):
+        bad = MIN.format(name="비밀직무").replace('["saramin"]', '["wanted"]')
+        with self.assertRaises(ConfigError) as ctx:
+            load_config({"JOBCATCH_CONFIG": bad}, self.path)
+        self.assertNotIn("비밀직무", str(ctx.exception))
+        self.assertIn("track #1", str(ctx.exception))
+
+    def test_wrong_shape_is_config_error(self):
+        for text in ['[track]\nname = "A"\n', 'common = 1\n' + MIN.format(name="A"),
+                     'run = "x"\n' + MIN.format(name="A")]:
+            with self.subTest(text=text[:12]):
+                with self.assertRaises(ConfigError):
+                    load_config({"JOBCATCH_CONFIG": text}, self.path)
+
     def test_example_config_loads(self):
         cfg = load_config({}, ROOT / "config.example.toml")
         self.assertEqual(len(cfg.tracks), 2)
@@ -65,7 +84,7 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(cfg.max_pages, 2)
         self.assertEqual(cfg.delay_sec, 2.0)
         self.assertEqual(cfg.max_cards_per_track, 30)
-        self.assertEqual(cfg.common.education, "학력무관")
+        self.assertEqual(cfg.common.education, "")
         self.assertEqual(cfg.common.commute_limit_min, 60)
         self.assertEqual(cfg.common.commute_soft_min, 75)
         self.assertEqual(cfg.common.max_detail_lookups, 60)

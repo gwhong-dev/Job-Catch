@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import re
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -13,6 +14,7 @@ from typing import Mapping
 
 SITES = {"saramin", "jobkorea"}
 CAREERS = {"신입", "경력"}
+EDU_ORDER = ["학력무관", "고졸", "초대졸", "대졸", "석사", "박사"]
 
 
 class ConfigError(Exception):
@@ -21,7 +23,7 @@ class ConfigError(Exception):
 
 @dataclass
 class Common:
-    education: str = "학력무관"
+    education: str = ""  # 비우면 학력으로 거르지 않음
     my_career_months: int = 0
     allow_locations: list[str] = field(default_factory=list)
     exclude_words: list[str] = field(default_factory=list)
@@ -69,18 +71,28 @@ def _str_list(value, where: str) -> list[str]:
     return value
 
 
+def _table(data: dict, name: str) -> dict:
+    value = data.get(name, {})
+    if not isinstance(value, dict):
+        raise ConfigError(f"[{name}] 은 표(table)여야 합니다")
+    return value
+
+
 def load_config(env: Mapping[str, str], path: Path) -> Config:
     try:
         data = tomllib.loads(_read_text(env, path))
     except tomllib.TOMLDecodeError as err:
-        line = getattr(err, "lineno", "?")
-        raise ConfigError(f"설정 TOML 형식 오류 (줄 {line})") from None
+        m = re.search(r"line (\d+)", str(err))
+        raise ConfigError(f"설정 TOML 형식 오류 (줄 {m.group(1) if m else '?'})") from None
 
-    run = data.get("run", {})
-    c = data.get("common", {})
+    run = _table(data, "run")
+    c = _table(data, "common")
+    education = c.get("education", "")
+    if education and education not in EDU_ORDER:
+        raise ConfigError(f"common.education 은 {' / '.join(EDU_ORDER)} 중에서 고르거나 비웁니다")
     try:
         common = Common(
-            education=str(c.get("education", "학력무관")),
+            education=str(education),
             my_career_months=int(c.get("my_career_months", 0)),
             allow_locations=_str_list(c.get("allow_locations", []), "common.allow_locations"),
             exclude_words=_str_list(c.get("exclude_words", []), "common.exclude_words"),
@@ -94,10 +106,13 @@ def load_config(env: Mapping[str, str], path: Path) -> Config:
     except (TypeError, ValueError):
         raise ConfigError("common: 숫자 칸에 숫자가 아닌 값이 있습니다") from None
 
+    raw_tracks = data.get("track", [])
+    if not isinstance(raw_tracks, list) or not all(isinstance(t, dict) for t in raw_tracks):
+        raise ConfigError("갈래는 [[track]] 블록으로 적습니다")
     tracks: list[Track] = []
-    for i, t in enumerate(data.get("track", [])):
+    for i, t in enumerate(raw_tracks):
         name = str(t.get("name", f"갈래{i + 1}"))
-        where = f"track '{name}'"
+        where = f"track #{i + 1}"  # 갈래 이름은 원하는 직무라서 공개 로그에 남기지 않는다
         sites = _str_list(t.get("sites", []), f"{where} sites")
         keywords = _str_list(t.get("keywords", []), f"{where} keywords")
         career = _str_list(t.get("career", ["신입"]), f"{where} career")

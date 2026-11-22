@@ -35,10 +35,11 @@ jobs:
           key: seen-${{ github.run_id }}
           restore-keys: seen-
 
+      # 검색 기준도 Secret 으로 넘긴다: Variable 은 공개 로그의 env 블록에 평문으로 찍힌다
       - name: 수집 · 메일 발송
         run: python run.py
         env:
-          JOBCATCH_CONFIG: ${{ vars.JOBCATCH_CONFIG }}
+          JOBCATCH_CONFIG: ${{ secrets.JOBCATCH_CONFIG }}
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           MAIL_TO: ${{ secrets.MAIL_TO }}

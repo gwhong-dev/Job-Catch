@@ -76,6 +76,23 @@ class RunTest(unittest.TestCase):
         self.assertIn("새 공고 1건", s.subjects[0])
         self.assertIn("새 공고 없음", s.subjects[1])
 
+    def test_excluded_after_lookup_recorded(self):
+        from jobcatch import history
+        from jobcatch.models import Detail
+
+        def no_edu(*a):
+            j = fake_saramin(*a)[0]
+            j.education = ""
+            return [j]
+
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            code = run.main([], self.env, self.root, fetchers={"saramin": no_edu}, sender=Sender(),
+                            today=TODAY, sleep=lambda s: None,
+                            details={"saramin": lambda job_id, today: Detail(education="대졸(4년)↑")})
+        self.assertEqual(code, 0)
+        self.assertTrue(history.load(self.seen)["saramin:1"].excluded)
+
     def test_bad_config_exit_2(self):
         code, log = self.main([], env={"JOBCATCH_CONFIG": "["})
         self.assertEqual(code, 2)

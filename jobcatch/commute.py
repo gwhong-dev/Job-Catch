@@ -46,7 +46,9 @@ class Kakao:
             body = {}
         if resp.status_code == 401 or resp.status_code == 403:
             raise KakaoUnavailable(f"카카오 키 오류 (HTTP {resp.status_code})")
-        if resp.status_code == 400 and isinstance(body, dict) and body.get("code") == -10:
+        if resp.status_code == 429 or (
+            resp.status_code == 400 and isinstance(body, dict) and body.get("code") == -10
+        ):
             raise KakaoUnavailable("카카오 쿼터 초과")
         if resp.status_code != 200:
             return {}

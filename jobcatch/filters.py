@@ -5,12 +5,10 @@ from __future__ import annotations
 import re
 from typing import Literal
 
-from .config import Common, Track
+from .config import EDU_ORDER, Common, Track
 from .models import Job
 
 Status = Literal["pass", "check", "exclude"]
-
-EDU_ORDER = ["학력무관", "고졸", "초대졸", "대졸", "석사", "박사"]
 
 
 def required_education(text: str) -> str | None:
@@ -58,6 +56,8 @@ def _one_location(part: str, allow: list[str]) -> Status:
 
 
 def location_status(location: str, allow: list[str]) -> Status:
+    if not allow:
+        return "pass"  # 지역 목록을 비우면 지역으로 거르지 않음
     loc = " ".join(location.split())
     if not loc or "전국" in loc or "재택" in loc:
         return "check"
@@ -84,11 +84,12 @@ def _text_rules_pass(job: Job, common: Common, track: Track) -> bool:
 
 
 def education_ok(job: Job, common: Common) -> bool | None:
+    if not common.education:
+        return True  # 학력 설정이 없으면 거르지 않음
     need = required_education(job.education)
     if need is None:
         return None
-    mine = common.education if common.education in EDU_ORDER else "박사"
-    return EDU_ORDER.index(need) <= EDU_ORDER.index(mine)
+    return EDU_ORDER.index(need) <= EDU_ORDER.index(common.education)
 
 
 def career_ok(job: Job, common: Common, track: Track) -> bool | None:

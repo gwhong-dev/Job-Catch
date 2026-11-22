@@ -53,6 +53,17 @@ class HistoryTest(unittest.TestCase):
         history.prune(entries, TODAY)
         self.assertEqual(sorted(entries), ["saramin:nodl2", "saramin:recent"])
 
+    def test_record_excluded_and_prune(self):
+        entries = {}
+        history.record_excluded(entries, [job("x", TODAY + timedelta(days=90))], TODAY - timedelta(days=31))
+        history.record_excluded(entries, [job("y")], TODAY - timedelta(days=29))
+        self.assertTrue(entries["saramin:x"].excluded)
+        history.save(self.path, entries)
+        entries = history.load(self.path)
+        self.assertTrue(entries["saramin:y"].excluded)
+        history.prune(entries, TODAY)
+        self.assertEqual(sorted(entries), ["saramin:y"])  # 제외 기록은 30일 뒤 다시 판정
+
     def test_load_legacy_format_ignored(self):
         self.path.parent.mkdir(parents=True)
         self.path.write_text(json.dumps({"saramin:1": "2026-11-20"}), encoding="utf-8")

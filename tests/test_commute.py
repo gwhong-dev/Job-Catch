@@ -85,6 +85,11 @@ class KakaoTest(unittest.TestCase):
         with self.assertRaises(KakaoUnavailable):
             k.transit_minutes((1.0, 2.0), (3.0, 4.0))
 
+    def test_kakao_429_raises(self):
+        k = Kakao("KEY", get=FakeGet(FakeResp(429, {})))
+        with self.assertRaises(KakaoUnavailable):
+            k.geocode("서울 중구 세종대로 110")
+
     def test_commute_status(self):
         self.assertEqual(commute_status(55, 60, 75), "pass")
         self.assertEqual(commute_status(60, 60, 75), "pass")

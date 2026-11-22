@@ -83,6 +83,8 @@ class Digest:
     failed_sites: list[str]
     new_total: int
     commute_failed: bool = False
+    excluded_after_lookup: list[Job] = field(default_factory=list)  # 다음 날 다시 조회하지 않게 기록
+    unchecked_by_cap: int = 0  # 상세 조회 상한 때문에 지역 목록으로만 판정한 공고 수
 
 
 def _province(location: str) -> str:
@@ -102,6 +104,10 @@ class _Commute:
         self.sleep = sleep
         self.failed = False
         self.lookups = 0
+        self.capped = 0
+        self.looked_up = False  # 마지막 judge 가 상세 페이지를 읽었는지
+        self.route_tries = 0
+        self.route_found = 0
         self.home = None
         if kakao and cfg.common.home_address:
             try:
@@ -126,8 +132,13 @@ class _Commute:
         """상세 페이지 → 근무지 → 대중교통 시간으로 판정. 못 구하면 지역 목록 판정."""
         common = self.cfg.common
         fetch = self.details.get(job.source)
-        if not fetch or self.lookups >= common.max_detail_lookups:
+        self.looked_up = False
+        if not fetch:
             return classify(job, common, track)
+        if self.lookups >= common.max_detail_lookups:
+            self.capped += 1
+            return classify(job, common, track)
+        self.looked_up = True
         if self.lookups:
             self.sleep(self.cfg.delay_sec)
         self.lookups += 1
@@ -143,7 +154,10 @@ class _Commute:
         if self.on:
             try:
                 dst = detail.coords or (self.kakao.geocode(detail.address) if detail.address else None)
-                minutes = self.kakao.transit_minutes(self.home, dst) if dst else None
+                if dst:
+                    self.route_tries += 1
+                    minutes = self.kakao.transit_minutes(self.home, dst)
+                    self.route_found += minutes is not None
             except KakaoUnavailable:
                 self.home = None
                 self.failed = True
@@ -169,7 +183,9 @@ def build(
     commute = _Commute(cfg, today, kakao, details, sleep)
 
     kept: list[Job] = []
+    excluded_after_lookup: list[Job] = []
     for job in collected.jobs:
+        commute.looked_up = False
         if job.key in entries or job.track not in tracks:
             continue
         track = tracks[job.track]
@@ -185,6 +201,8 @@ def build(
                 # 통근 계산이 꺼져 있어도, 학력을 모르면 (잡코리아 카드) 상세 페이지에서 보충
                 status, flags = commute.judge(job, track)
         if status == "exclude":
+            if commute.looked_up:
+                excluded_after_lookup.append(job)
             continue
         job.flags = flags
         kept.append(job)
@@ -198,7 +216,7 @@ def build(
                                        list(j.flags), j.commute_min, j.location))
             closing_keys.add(j.key)
     for key, e in entries.items():
-        if e.deadline and today <= e.deadline <= soon:
+        if not e.excluded and e.deadline and today <= e.deadline <= soon:
             closing.append(ClosingItem(e.title, e.company, e.url, e.source, e.track, e.deadline))
     closing.sort(key=lambda c: (c.deadline, c.title))
 
@@ -221,6 +239,8 @@ def build(
         closing=closing,
         failed_sites=list(collected.failed_sites),
         new_total=len(kept),
-        commute_failed=commute.failed,
+        commute_failed=commute.failed or (commute.route_tries >= 3 and commute.route_found == 0),
+        excluded_after_lookup=excluded_after_lookup,
+        unchecked_by_cap=commute.capped,
     )
     return digest, kept

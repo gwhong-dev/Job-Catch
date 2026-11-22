@@ -23,6 +23,10 @@ class Entry:
     track: str
     deadline: date | None
     first_sent: date
+    excluded: bool = False  # 상세 조회 뒤 제외된 공고: 다시 조회하지 않으려고 잠시 기억
+
+
+EXCLUDED_KEEP_DAYS = 30
 
 
 def _to_json(e: Entry) -> dict:
@@ -38,6 +42,7 @@ def _from_json(d: dict) -> Entry:
         track=d.get("track", ""),
         deadline=date.fromisoformat(d["deadline"]) if d.get("deadline") else None,
         first_sent=date.fromisoformat(d["first_sent"]),
+        excluded=bool(d.get("excluded", False)),
     )
 
 
@@ -78,10 +83,21 @@ def record(entries: dict[str, Entry], jobs: list[Job], today: date) -> None:
         )
 
 
+def record_excluded(entries: dict[str, Entry], jobs: list[Job], today: date) -> None:
+    for j in jobs:
+        if j.key not in entries:
+            entries[j.key] = Entry(
+                title=j.title, company=j.company, url=j.url, source=j.source,
+                track=j.track, deadline=j.deadline, first_sent=today, excluded=True,
+            )
+
+
 def prune(entries: dict[str, Entry], today: date) -> None:
     for key in list(entries):
         e = entries[key]
-        if e.deadline:
+        if e.excluded:
+            expired = e.first_sent + timedelta(days=EXCLUDED_KEEP_DAYS) < today
+        elif e.deadline:
             expired = e.deadline + timedelta(days=30) < today
         else:
             expired = e.first_sent + timedelta(days=60) < today

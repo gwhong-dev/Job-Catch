@@ -50,8 +50,8 @@
 - Claude 예약 작업: 사용량이 들고 이 일에는 필요 없어 제외.
 
 개인 기준을 둘 곳
-- **공개 저장소 + 기준은 저장소 설정(Actions Variable) — 고름.** 저장소에는 `config.example.toml` 만. 다른 사람이 fork 해 자기 기준을 넣는 구조와 같다. Variable 은 Secret 과 달리 설정 화면에서 값을 다시 보고 고칠 수 있고, 저장소 관리자만 볼 수 있다.
-- 공개 저장소 + 기준을 Secret 에: 값을 다시 볼 수 없어 자주 고치기 불편. 비밀번호류만 Secret 에 둔다.
+- **공개 저장소 + 기준은 Actions Secret — 고름 (최종 검토 뒤 변경).** 저장소에는 `config.example.toml` 만. 원본은 각자 PC 의 `config.toml` 에 두고 고칠 때마다 Secret 을 통째로 덮어쓴다.
+- 공개 저장소 + 기준을 Variable 에: 처음에 골랐으나, Actions 가 step 의 `env:` 값을 공개 실행 로그에 펼쳐 보이며 Variable 은 가려지지 않아 제외.
 - 저장소 비공개: 가장 간단하지만 포트폴리오 · 공유 목적과 맞지 않아 제외.
 
 통근 기준 (2026-11-22 사용자 요청으로 변경)
@@ -66,7 +66,7 @@
 ## 5. 설정
 
 ### 읽는 순서
-1. 환경변수 `JOBCATCH_CONFIG` (TOML 전문) — Actions 에서는 Variable `JOBCATCH_CONFIG` 를 넣어 준다
+1. 환경변수 `JOBCATCH_CONFIG` (TOML 전문) — Actions 에서는 Secret `JOBCATCH_CONFIG` 를 넣어 준다
 2. 없으면 저장소 폴더의 `config.toml` (`.gitignore` 에 추가 — 로컬 실행용, 커밋 안 함)
 3. 둘 다 없으면 오류로 멈춘다 (`config.example.toml` 을 복사하라고 안내)
 
@@ -104,11 +104,10 @@ career = ["신입"]              # 경력무관 포함
 include_any = []                # 갈래별 추가 조건 (비우면 통과)
 ```
 
-저장소 주인의 실제 값은 Variable 에만 넣는다 (이 문서와 저장소에 적지 않음).
+저장소 주인의 실제 값은 Secret 에만 넣는다 (이 문서와 저장소에 적지 않음).
 
 ### Actions 에 넣는 값
-- Variable: `JOBCATCH_CONFIG` (검색 기준 TOML)
-- Secret: `GMAIL_USER`, `GMAIL_APP_PASSWORD`, `MAIL_TO`, `KAKAO_REST_KEY`(선택 — 없으면 통근 계산 없이 지역 목록만)
+- Secret: `JOBCATCH_CONFIG` (검색 기준 TOML), `GMAIL_USER`, `GMAIL_APP_PASSWORD`, `MAIL_TO`, `KAKAO_REST_KEY`(선택 — 없으면 통근 계산 없이 지역 목록만)
 
 ## 6. 동작
 
@@ -181,7 +180,7 @@ Secret: `KAKAO_REST_KEY`. 키나 `home_address` 가 없으면 통근 계산을 �
 
 1. 저장소 fork
 2. Gmail 앱 비밀번호 만들기 (2단계 인증 필요)
-3. 내 저장소 Settings → Secrets and variables → Actions 에 Secret 3개, Variable 1개 등록
+3. 내 저장소 Settings → Secrets and variables → Actions 에 Secret 4개(카카오 키를 쓰면 5개) 등록
 4. Actions 탭에서 워크플로 켜기 (fork 는 예약 실행이 기본으로 꺼져 있음) → 수동 실행으로 시험
 
 ## 10. 만드는 사람에게 맡기는 것

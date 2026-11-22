@@ -88,6 +88,14 @@ class ClassifyTest(unittest.TestCase):
     def test_unsure_location_flags(self):
         self.assertEqual(classify(job(location="서울"), COMMON, BOTH), ("check", ["지역 확인"]))
 
+    def test_no_education_setting_means_no_filter(self):
+        c = Common(education="", allow_locations=ALLOW)
+        self.assertEqual(classify(job(education="대졸(4년)↑"), c, BOTH), ("pass", []))
+        self.assertEqual(classify(job(education=""), c, BOTH), ("pass", []))
+
+    def test_empty_allow_list_means_no_location_filter(self):
+        self.assertEqual(location_status("부산 해운대구", []), "pass")
+
     def test_exclude_words_and_employment(self):
         self.assertEqual(classify(job(title="기구 영업 담당"), COMMON, BOTH)[0], "exclude")
         self.assertEqual(classify(job(employment="파견직"), COMMON, BOTH)[0], "exclude")
