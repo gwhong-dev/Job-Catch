@@ -14,6 +14,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from .models import Detail, Job
+from .summary import page_text
 
 BASE = "https://www.saramin.co.kr"
 SEARCH_URL = BASE + "/zf_user/search/recruit"
@@ -139,10 +140,36 @@ def parse_detail(html: str, today: date) -> Detail:
     return Detail(address=" ".join(address.split()), coords=coords)
 
 
-def fetch_detail(job_id: str, today: date) -> Detail:
-    resp = requests.get(
-        DETAIL_URL, params={"rec_idx": job_id}, headers={"User-Agent": USER_AGENT}, timeout=20
-    )
+def _get(url: str, job_id: str) -> str:
+    resp = requests.get(url, params={"rec_idx": job_id}, headers={"User-Agent": USER_AGENT}, timeout=20)
     if resp.status_code != 200:
         raise RuntimeError(f"사람인 상세 응답 {resp.status_code}")
-    return parse_detail(resp.text, today)
+    return resp.text
+
+
+def fetch_detail(job_id: str, today: date, delay_sec: float = 2.0) -> Detail:
+    """상세요강 본문(작은 페이지)을 먼저 읽고, 본문에 근무지가 없을 때만 공고 페이지에서 주소 · 좌표."""
+    body, address = parse_body(_get(BODY_URL, job_id))
+    if address:
+        return Detail(address=address, body=body)
+    time.sleep(delay_sec)
+    detail = parse_detail(_get(DETAIL_URL, job_id), today)
+    detail.body = body
+    return detail
+
+
+BODY_URL = BASE + "/zf_user/jobs/relay/view-detail"
+_WORKPLACE_RE = re.compile(r"근무지\s*[:：]\s*([^\n]+)")
+_ROAD_RE = re.compile(r"^(.+?(?:로|길)\s*\d+(?:-\d+)?)")
+
+
+def parse_body(html: str) -> tuple[str, str]:
+    """상세요강 본문과, 본문의 "근무지 : ..." 줄에서 뽑은 도로명 주소."""
+    text = page_text(html)
+    address = ""
+    m = _WORKPLACE_RE.search(text)
+    if m:
+        line = re.sub(r"^\(\d{5}\)\s*", "", m.group(1).strip())
+        road = _ROAD_RE.match(line)
+        address = road.group(1) if road else line.split("(")[0].strip()
+    return text, address

@@ -12,6 +12,7 @@ from .config import Config, Track
 from .filters import classify
 from .history import Entry
 from .models import Detail, Job
+from .summary import extract_duty, find_tags, group_of
 
 Fetcher = Callable[[str, list[str], int, float, date], list[Job]]
 DetailFetcher = Callable[[str, date], Detail]
@@ -72,6 +73,9 @@ class ClosingItem:
     flags: list[str] = field(default_factory=list)
     commute_min: int | None = None
     location: str = ""
+    address: str = ""
+    summary: str = ""
+    tags: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -150,6 +154,10 @@ class _Commute:
             job.deadline = detail.deadline
         if detail.education and not job.education:
             job.education = detail.education
+        job.address = detail.address
+        if detail.body:
+            job.summary = extract_duty(detail.body)
+            job.tags = find_tags(detail.body, common.extra_tags)
         minutes = None
         if self.on:
             try:
@@ -197,14 +205,15 @@ def build(
             status, flags = commute.judge(job, track)
         else:
             status, flags = classify(job, cfg.common, track)
-            if status != "exclude" and not job.education:
-                # 통근 계산이 꺼져 있어도, 학력을 모르면 (잡코리아 카드) 상세 페이지에서 보충
+            if status != "exclude":
+                # 통근 계산이 꺼져 있어도 상세 페이지를 읽는다: 근무지 주소 · 요약, 잡코리아 학력 보충
                 status, flags = commute.judge(job, track)
         if status == "exclude":
             if commute.looked_up:
                 excluded_after_lookup.append(job)
             continue
         job.flags = flags
+        job.group = group_of(job.title, job.sectors, track.groups)
         kept.append(job)
 
     soon = today + timedelta(days=CLOSING_DAYS)
@@ -213,7 +222,8 @@ def build(
     for j in kept:
         if j.deadline and today <= j.deadline <= soon:
             closing.append(ClosingItem(j.title, j.company, j.url, j.source, j.track, j.deadline,
-                                       list(j.flags), j.commute_min, j.location))
+                                       list(j.flags), j.commute_min, j.location,
+                                       j.address, j.summary, list(j.tags)))
             closing_keys.add(j.key)
     for key, e in entries.items():
         if not e.excluded and e.deadline and today <= e.deadline <= soon:
@@ -226,7 +236,9 @@ def build(
             new_by_track[j.track].append(j)
     overflow: dict[str, int] = {}
     for name, jobs in new_by_track.items():
-        jobs.sort(key=lambda j: (j.deadline or date.max, j.title))
+        # 묶음 순서(설정 순서, "기타" 는 맨 뒤) → 마감일 → 제목. 상한에 걸리면 뒤쪽 묶음부터 잘린다
+        order = {g: i for i, g in enumerate(tracks[name].groups)}
+        jobs.sort(key=lambda j: (order.get(j.group, len(order)), j.deadline or date.max, j.title))
         extra = len(jobs) - cfg.max_cards_per_track
         if extra > 0:
             overflow[name] = extra

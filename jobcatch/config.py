@@ -33,6 +33,7 @@ class Common:
     commute_limit_min: int = 60
     commute_soft_min: int = 75
     max_detail_lookups: int = 60
+    extra_tags: list[str] = field(default_factory=list)  # 요약 태그로 더 찾을 단어
 
 
 @dataclass
@@ -42,6 +43,7 @@ class Track:
     keywords: list[str]
     career: list[str]
     include_any: list[str] = field(default_factory=list)
+    groups: dict[str, list[str]] = field(default_factory=dict)  # 세부 묶음: 이름 → 제목에서 찾을 단어
 
 
 @dataclass
@@ -69,6 +71,12 @@ def _str_list(value, where: str) -> list[str]:
     if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
         raise ConfigError(f"{where}: 글자 목록이어야 합니다")
     return value
+
+
+def _groups(value, where: str) -> dict[str, list[str]]:
+    if not isinstance(value, dict):
+        raise ConfigError(f'{where}: {{ "묶음 이름" = ["단어", ...] }} 모양이어야 합니다')
+    return {str(k): _str_list(v, where) for k, v in value.items()}
 
 
 def _table(data: dict, name: str) -> dict:
@@ -102,6 +110,7 @@ def load_config(env: Mapping[str, str], path: Path) -> Config:
             commute_limit_min=int(c.get("commute_limit_min", 60)),
             commute_soft_min=int(c.get("commute_soft_min", 75)),
             max_detail_lookups=int(c.get("max_detail_lookups", 60)),
+            extra_tags=_str_list(c.get("extra_tags", []), "common.extra_tags"),
         )
     except (TypeError, ValueError):
         raise ConfigError("common: 숫자 칸에 숫자가 아닌 값이 있습니다") from None
@@ -129,6 +138,7 @@ def load_config(env: Mapping[str, str], path: Path) -> Config:
                 keywords=keywords,
                 career=career,
                 include_any=_str_list(t.get("include_any", []), f"{where} include_any"),
+                groups=_groups(t.get("groups", {}), f"{where} groups"),
             )
         )
     if not tracks:

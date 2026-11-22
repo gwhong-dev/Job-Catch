@@ -237,12 +237,39 @@ class CommuteTest(unittest.TestCase):
                      details={"saramin": CountingDetails()}, kakao=FakeKakao({(1.0, 1.0): 30}), sleep=NO_SLEEP)
         self.assertEqual(d.unchecked_by_cap, 2)
 
-    def test_no_kakao_uses_region_list(self):
+    def test_no_kakao_still_reads_detail_for_summary(self):
         details = CountingDetails()
         _, new = build(collected(job("1")), self.cfg(), {}, TODAY, details={"saramin": details},
                        kakao=None, sleep=NO_SLEEP)
-        self.assertEqual(details.calls, [])
+        self.assertEqual(details.calls, ["1"])
         self.assertEqual(len(new), 1)
+        self.assertIsNone(new[0].commute_min)
+
+
+class SummaryGroupTest(unittest.TestCase):
+    def test_detail_fills_address_summary_tags(self):
+        def details(job_id, today):
+            return Detail(address="서울 중구 세종대로 110",
+                          body="📋 주요업무\n▣ 컨베이어 설계\n📋 자격요건\n• Creo 사용")
+
+        cfg = config(extra_tags=["설계검증"])
+        _, new = build(collected(job("1")), cfg, {}, TODAY, details={"saramin": details}, sleep=NO_SLEEP)
+        self.assertEqual(new[0].address, "서울 중구 세종대로 110")
+        self.assertEqual(new[0].summary, "컨베이어 설계")
+        self.assertEqual(new[0].tags, ["Creo", "컨베이어"])
+
+    def test_groups_order_and_other(self):
+        cfg = config()
+        cfg.tracks[0].groups = {"기구설계": ["기구"], "장비설계": ["장비"]}
+        jobs = [job("1", title="GEO 컨설턴트(예시)"), job("2", title="장비 설계(예시)"),
+                job("3", title="반도체 장비 기구설계(예시)")]
+        d, _ = build(collected(*jobs), cfg, {}, TODAY)
+        got = [(j.job_id, j.group) for j in d.new_by_track["설계"]]
+        self.assertEqual(got, [("3", "기구설계"), ("2", "장비설계"), ("1", "기타")])
+
+    def test_no_groups_means_empty_group(self):
+        d, _ = build(collected(job("1")), config(), {}, TODAY)
+        self.assertEqual(d.new_by_track["설계"][0].group, "")
 
 
 if __name__ == "__main__":

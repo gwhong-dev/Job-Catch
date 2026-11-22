@@ -75,6 +75,19 @@ class ConfigTest(unittest.TestCase):
                 with self.assertRaises(ConfigError):
                     load_config({"JOBCATCH_CONFIG": text}, self.path)
 
+    def test_groups_and_extra_tags(self):
+        text = ('[common]\nextra_tags = ["설계검증"]\n' + MIN.format(name="A")
+                + 'groups = { "기구설계" = ["기구"], "장비설계" = ["장비"] }\n')
+        cfg = load_config({"JOBCATCH_CONFIG": text}, self.path)
+        self.assertEqual(cfg.common.extra_tags, ["설계검증"])
+        self.assertEqual(list(cfg.tracks[0].groups), ["기구설계", "장비설계"])
+        self.assertEqual(cfg.tracks[0].groups["장비설계"], ["장비"])
+
+    def test_bad_groups_rejected(self):
+        text = MIN.format(name="A") + 'groups = ["기구"]\n'
+        with self.assertRaises(ConfigError):
+            load_config({"JOBCATCH_CONFIG": text}, self.path)
+
     def test_example_config_loads(self):
         cfg = load_config({}, ROOT / "config.example.toml")
         self.assertEqual(len(cfg.tracks), 2)
