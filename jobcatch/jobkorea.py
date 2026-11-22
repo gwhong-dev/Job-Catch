@@ -15,6 +15,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from .models import Detail, Job
+from .summary import page_text
 from .saramin import USER_AGENT
 
 BASE = "https://www.jobkorea.co.kr"
@@ -150,10 +151,27 @@ def parse_detail(html: str, today: date) -> Detail:
     )
 
 
-def fetch_detail(job_id: str, today: date) -> Detail:
+def fetch_detail(job_id: str, today: date, delay_sec: float = 2.0) -> Detail:
+    """공고 페이지(근무지 · 학력 · 마감) + 상세요강 iframe(본문). 본문을 못 읽어도 공고 페이지 값은 쓴다."""
     resp = requests.get(
         f"{BASE}/Recruit/GI_Read/{job_id}", headers={"User-Agent": USER_AGENT}, timeout=20
     )
     if resp.status_code != 200:
         raise RuntimeError(f"잡코리아 상세 응답 {resp.status_code}")
-    return parse_detail(resp.text, today)
+    detail = parse_detail(resp.text, today)
+    time.sleep(delay_sec)
+    try:
+        body = requests.get(
+            f"{BASE}/Recruit/GI_Read_Comt_Ifrm", params={"Gno": job_id},
+            headers={"User-Agent": USER_AGENT}, timeout=20,
+        )
+        if body.status_code == 200:
+            detail.body = parse_body(body.text)
+    except requests.RequestException:
+        pass
+    return detail
+
+
+def parse_body(html: str) -> str:
+    """상세요강(GI_Read_Comt_Ifrm) 본문 글자."""
+    return page_text(html)

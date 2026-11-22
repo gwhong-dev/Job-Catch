@@ -25,6 +25,11 @@ class Job:
     track: str = ""
     flags: list[str] = field(default_factory=list)
     commute_min: int | None = None
+    # 상세 페이지에서 채우는 값 (모르면 빈 값)
+    address: str = ""
+    summary: str = ""
+    tags: list[str] = field(default_factory=list)
+    group: str = ""  # 갈래 안 세부 묶음
 
     @property
     def key(self) -> str:
@@ -39,3 +44,4 @@ class Detail:
     deadline: date | None = None
     education: str = ""
     coords: tuple[float, float] | None = None  # (경도 x, 위도 y). 페이지에 있으면 주소 변환을 건너뛴다
+    body: str = ""  # 상세요강 본문 글자 (요약용)

@@ -61,6 +61,39 @@ class HtmlTest(unittest.TestCase):
         self.assertIn("■ 설계 (4건)", h)
         self.assertIn('href="https://example.com/1"', h)
 
+    def test_card_shows_address_summary_tags(self):
+        j = job("1", address="서울 중구 세종대로 110", summary="컨베이어 설계 / BOM 작성", tags=["Creo", "반도체"])
+        h = render_html(digest(new_by_track={"설계": [j], "개발": []}, new_total=1))
+        self.assertIn("📍 서울 중구 세종대로 110", h)
+        self.assertIn("📝 컨베이어 설계 / BOM 작성", h)
+        self.assertIn("Creo", h)
+        self.assertNotIn("정규직", h)  # 고용형태 · 학력 줄은 뺐다
+
+    def test_card_falls_back_to_card_location(self):
+        h = render_html(digest(new_by_track={"설계": [job("1")], "개발": []}, new_total=1))
+        self.assertIn("📍 경기 성남시", h)
+        self.assertNotIn("📝", h)
+
+    def test_groups_subheadings_and_toc(self):
+        jobs = [job("1", group="기구설계"), job("2", group="기구설계"), job("3", group="기타")]
+        h = render_html(digest(new_by_track={"설계": jobs, "개발": [job("4", track="개발")]}, new_total=4))
+        self.assertIn("▸ 기구설계 (2)", h)
+        self.assertIn("▸ 기타 (1)", h)
+        self.assertLess(h.index("▸ 기구설계 (2)"), h.index("공고1(예시)"))
+        self.assertLess(h.index("▸ 기타 (1)"), h.index("공고3(예시)"))
+        self.assertLess(h.index("공고1(예시)"), h.index("▸ 기타 (1)"))
+        toc = h[: h.index("■ 설계")]
+        self.assertIn("설계 3건 (기구설계 2 · 기타 1)", toc)
+        self.assertIn("개발 1건", toc)
+
+    def test_closing_card_shows_summary(self):
+        c = ClosingItem("마감 공고", "다라(예시)", "u", "saramin", "설계", TODAY + timedelta(days=2),
+                        location="경기 성남시", address="경기 성남시 분당구 판교역로 1", summary="지그 설계",
+                        tags=["지그"])
+        h = render_html(digest(closing=[c]))
+        self.assertIn("📍 경기 성남시 분당구 판교역로 1", h)
+        self.assertIn("📝 지그 설계", h)
+
     def test_no_new(self):
         h = render_html(digest())
         self.assertIn("새 공고가 없습니다.", h)
