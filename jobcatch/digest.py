@@ -12,12 +12,29 @@ from .config import Config, Track
 from .filters import classify
 from .history import Entry
 from .models import Detail, Job
-from .summary import extract_duty, find_tags, group_of
+from .summary import analyze, group_of
 
 Fetcher = Callable[[str, list[str], int, float, date], list[Job]]
 DetailFetcher = Callable[[str, date], Detail]
 
 CLOSING_DAYS = 7
+DETAIL_TIME_LIMIT_SEC = 15 * 60  # 상세 조회 단계가 이보다 길면 남은 공고는 내일로 (워크플로 제한 30분)
+
+
+def _closing_soon(job: Job, today: date) -> bool:
+    return job.deadline is not None and today <= job.deadline <= today + timedelta(days=CLOSING_DAYS)
+
+
+def _lookup_order(jobs: list[Job], today: date) -> list[Job]:
+    """상세 조회 순서: 마감 임박(목록 마감일 기준) 먼저, 나머지는 갈래를 번갈아 한 건씩."""
+    first = [j for j in jobs if _closing_soon(j, today)]
+    by_track: dict[str, list[Job]] = {}
+    for j in jobs:
+        if not _closing_soon(j, today):
+            by_track.setdefault(j.track, []).append(j)
+    queues = list(by_track.values())
+    rest = [q[i] for i in range(max(map(len, queues), default=0)) for q in queues if i < len(q)]
+    return first + rest
 
 
 @dataclass
@@ -76,6 +93,7 @@ class ClosingItem:
     address: str = ""
     summary: str = ""
     tags: list[str] = field(default_factory=list)
+    required: str = ""
 
 
 @dataclass
@@ -88,7 +106,14 @@ class Digest:
     new_total: int
     commute_failed: bool = False
     excluded_after_lookup: list[Job] = field(default_factory=list)  # 다음 날 다시 조회하지 않게 기록
-    unchecked_by_cap: int = 0  # 상세 조회 상한 때문에 지역 목록으로만 판정한 공고 수
+    deferred: int = 0  # 상세 조회 상한 · 시간에 걸려 내일 다시 볼 공고 수 (보낸 기록에 남기지 않음)
+    detail_read: int = 0
+    detail_failed: int = 0
+    detail_failed_sites: list[str] = field(default_factory=list)  # 시도 3건 이상 중 절반 이상 실패한 사이트
+    # 분석 적중률: 상세 본문이 있던 공고 중 요약 · 필수조건이 나온 건수 (제외된 공고 포함)
+    with_body: int = 0
+    with_summary: int = 0
+    with_required: int = 0
 
 
 def _province(location: str) -> str:
@@ -100,15 +125,24 @@ class _Commute:
     """통근 모드 상태: 집 좌표, 조회 횟수, 실패 여부."""
 
     def __init__(self, cfg: Config, today: date, kakao: Kakao | None,
-                 details: dict[str, DetailFetcher] | None, sleep: Callable[[float], None]):
+                 details: dict[str, DetailFetcher] | None, sleep: Callable[[float], None],
+                 clock: Callable[[], float] = time.monotonic):
         self.cfg = cfg
         self.today = today
         self.kakao = kakao
         self.details = details or {}
         self.sleep = sleep
+        self.clock = clock
+        self.started: float | None = None  # 첫 상세 조회 시각
         self.failed = False
         self.lookups = 0
-        self.capped = 0
+        self.deferred = 0
+        self.read = 0  # 상세를 받아 온 건수
+        self.with_body = 0  # 그중 본문 글자가 있는 건수 (적중률의 분모)
+        self.with_summary = 0
+        self.with_required = 0
+        self.tries: dict[str, int] = {}  # 사이트별 상세 조회 시도
+        self.fails: dict[str, int] = {}  # 사이트별 실패 (예외 · 빈 응답)
         self.looked_up = False  # 마지막 judge 가 상세 페이지를 읽었는지
         self.route_tries = 0
         self.route_found = 0
@@ -132,32 +166,66 @@ class _Commute:
             return False
         return prov not in self.provinces
 
+    def minutes_to(self, address: str) -> int | None:
+        """다시 알림 카드용 통근 시간 (기록에 저장하지 않으므로 그때 다시 계산)."""
+        if not self.on or not address:
+            return None
+        try:
+            dst = self.kakao.geocode(address)
+            return self.kakao.transit_minutes(self.home, dst) if dst else None
+        except KakaoUnavailable:
+            self.home = None
+            self.failed = True
+            return None
+
+    def _out_of_budget(self) -> bool:
+        if self.lookups >= self.cfg.common.max_detail_lookups:
+            return True
+        if self.started is None:
+            self.started = self.clock()
+            return False
+        return self.clock() - self.started >= DETAIL_TIME_LIMIT_SEC
+
     def judge(self, job: Job, track: Track) -> tuple[str, list[str]]:
-        """상세 페이지 → 근무지 → 대중교통 시간으로 판정. 못 구하면 지역 목록 판정."""
+        """상세 페이지 → 근무지 → 대중교통 시간으로 판정. 못 구하면 지역 목록 판정.
+
+        상한 · 시간에 걸리면 마감 임박 공고만 지역 목록으로 판정하고, 나머지는 "defer" (내일 다시).
+        """
         common = self.cfg.common
         fetch = self.details.get(job.source)
         self.looked_up = False
         if not fetch:
             return classify(job, common, track)
-        if self.lookups >= common.max_detail_lookups:
-            self.capped += 1
-            return classify(job, common, track)
+        if self._out_of_budget():
+            if _closing_soon(job, self.today):
+                return classify(job, common, track)
+            self.deferred += 1
+            return "defer", []
         self.looked_up = True
         if self.lookups:
             self.sleep(self.cfg.delay_sec)
         self.lookups += 1
+        self.tries[job.source] = self.tries.get(job.source, 0) + 1
         try:
             detail = fetch(job.job_id, self.today)
         except Exception:
+            self.fails[job.source] = self.fails.get(job.source, 0) + 1
             return classify(job, common, track)
+        if detail.address or detail.body or detail.coords:
+            self.read += 1
+        else:  # 빈 응답: 사이트 구조가 바뀌었을 수 있다
+            self.fails[job.source] = self.fails.get(job.source, 0) + 1
         if detail.deadline and not job.deadline:
             job.deadline = detail.deadline
         if detail.education and not job.education:
             job.education = detail.education
         job.address = detail.address
         if detail.body:
-            job.summary = extract_duty(detail.body)
-            job.tags = find_tags(detail.body, common.extra_tags)
+            a = analyze(detail.body, common.extra_tags)
+            job.summary, job.required, job.tags = a.duty, a.required, a.tags
+            self.with_body += 1
+            self.with_summary += bool(a.duty)
+            self.with_required += bool(a.required)
         minutes = None
         if self.on:
             try:
@@ -185,15 +253,17 @@ def build(
     details: dict[str, DetailFetcher] | None = None,
     kakao: Kakao | None = None,
     sleep: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
 ) -> tuple[Digest, list[Job]]:
-    """두 번째 값은 기록에 남길 새 공고 전부 (카드 상한으로 잘린 것 포함)."""
+    """두 번째 값은 기록에 남길 새 공고 전부 (카드 상한으로 잘린 것 포함, 내일로 미룬 것 제외)."""
     tracks = {t.name: t for t in cfg.tracks}
-    commute = _Commute(cfg, today, kakao, details, sleep)
+    commute = _Commute(cfg, today, kakao, details, sleep, clock)
 
     kept: list[Job] = []
     excluded_after_lookup: list[Job] = []
+    # 상세 조회 전에 빠질 공고를 먼저 거른다. 그래야 갈래 번갈아 순서가 실제 후보 기준이 된다
+    candidates: list[Job] = []
     for job in collected.jobs:
-        commute.looked_up = False
         if job.key in entries or job.track not in tracks:
             continue
         track = tracks[job.track]
@@ -202,12 +272,17 @@ def build(
                 continue
             if classify(job, cfg.common, track, location="pass")[0] == "exclude":
                 continue  # 지역과 상관없이 빠지는 공고는 상세 조회하지 않는다
-            status, flags = commute.judge(job, track)
-        else:
-            status, flags = classify(job, cfg.common, track)
-            if status != "exclude":
-                # 통근 계산이 꺼져 있어도 상세 페이지를 읽는다: 근무지 주소 · 요약, 잡코리아 학력 보충
-                status, flags = commute.judge(job, track)
+        elif classify(job, cfg.common, track)[0] == "exclude":
+            continue
+        candidates.append(job)
+
+    for job in _lookup_order(candidates, today):
+        commute.looked_up = False
+        track = tracks[job.track]
+        # 통근 계산이 꺼져 있어도 상세 페이지를 읽는다: 근무지 주소 · 요약, 잡코리아 학력 보충
+        status, flags = commute.judge(job, track)
+        if status == "defer":
+            continue
         if status == "exclude":
             if commute.looked_up:
                 excluded_after_lookup.append(job)
@@ -223,11 +298,13 @@ def build(
         if j.deadline and today <= j.deadline <= soon:
             closing.append(ClosingItem(j.title, j.company, j.url, j.source, j.track, j.deadline,
                                        list(j.flags), j.commute_min, j.location,
-                                       j.address, j.summary, list(j.tags)))
+                                       j.address, j.summary, list(j.tags), j.required))
             closing_keys.add(j.key)
     for key, e in entries.items():
         if not e.excluded and e.deadline and today <= e.deadline <= soon:
-            closing.append(ClosingItem(e.title, e.company, e.url, e.source, e.track, e.deadline))
+            closing.append(ClosingItem(e.title, e.company, e.url, e.source, e.track, e.deadline,
+                                       list(e.flags), commute.minutes_to(e.address), e.location,
+                                       e.address, e.summary, list(e.tags), e.required))
     closing.sort(key=lambda c: (c.deadline, c.title))
 
     new_by_track: dict[str, list[Job]] = {t.name: [] for t in cfg.tracks}
@@ -236,9 +313,12 @@ def build(
             new_by_track[j.track].append(j)
     overflow: dict[str, int] = {}
     for name, jobs in new_by_track.items():
-        # 묶음 순서(설정 순서, "기타" 는 맨 뒤) → 마감일 → 제목. 상한에 걸리면 뒤쪽 묶음부터 잘린다
+        # 묶음 순서(설정 순서, "기타" 는 맨 뒤) → 통근 짧은 순(모름은 뒤) → 마감일 → 제목.
+        # 상한에 걸리면 뒤쪽 묶음부터, 묶음 안에서는 먼 공고부터 잘린다
         order = {g: i for i, g in enumerate(tracks[name].groups)}
-        jobs.sort(key=lambda j: (order.get(j.group, len(order)), j.deadline or date.max, j.title))
+        jobs.sort(key=lambda j: (order.get(j.group, len(order)),
+                                 j.commute_min if j.commute_min is not None else float("inf"),
+                                 j.deadline or date.max, j.title))
         extra = len(jobs) - cfg.max_cards_per_track
         if extra > 0:
             overflow[name] = extra
@@ -253,6 +333,13 @@ def build(
         new_total=len(kept),
         commute_failed=commute.failed or (commute.route_tries >= 3 and commute.route_found == 0),
         excluded_after_lookup=excluded_after_lookup,
-        unchecked_by_cap=commute.capped,
+        deferred=commute.deferred,
+        detail_read=commute.read,
+        with_body=commute.with_body,
+        with_summary=commute.with_summary,
+        with_required=commute.with_required,
+        detail_failed=sum(commute.fails.values()),
+        detail_failed_sites=[s for s, n in commute.tries.items()
+                             if n >= 3 and commute.fails.get(s, 0) * 2 >= n],
     )
     return digest, kept

@@ -33,6 +33,29 @@ class HistoryTest(unittest.TestCase):
         self.assertEqual(history.load(self.path), entries)
         self.assertEqual(entries["saramin:1"].track, "설계")
 
+    def test_roundtrip_card_fields_without_commute(self):
+        j = job("1", TODAY + timedelta(days=3))
+        j.address, j.location, j.summary, j.required = "서울 중구 세종대로 110", "서울 중구", "지그 설계", "Creo 3년"
+        j.tags, j.flags, j.commute_min = ["Creo"], ["학력 확인"], 42
+        entries = {}
+        history.record(entries, [j], TODAY)
+        history.save(self.path, entries)
+        loaded = history.load(self.path)["saramin:1"]
+        self.assertEqual((loaded.address, loaded.location, loaded.summary, loaded.required, loaded.tags,
+                          loaded.flags),
+                         ("서울 중구 세종대로 110", "서울 중구", "지그 설계", "Creo 3년", ["Creo"], ["학력 확인"]))
+        text = self.path.read_text(encoding="utf-8")
+        self.assertNotIn("42", text)
+        self.assertNotIn("commute", text)
+
+    def test_old_format_loads(self):
+        self.path.parent.mkdir(parents=True)
+        self.path.write_text(json.dumps({"saramin:1": {
+            "title": "t", "company": "c", "url": "u", "source": "saramin", "track": "설계",
+            "deadline": None, "first_sent": TODAY.isoformat()}}), encoding="utf-8")
+        e = history.load(self.path)["saramin:1"]
+        self.assertEqual((e.address, e.summary, e.tags), ("", "", []))
+
     def test_load_missing_is_empty(self):
         self.assertEqual(history.load(self.path), {})
 

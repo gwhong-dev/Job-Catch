@@ -60,15 +60,16 @@ def _badges(items: list[str], bg: str, color: str) -> str:
 
 
 def _card(*, dday: str, urgent: bool, company: str, source: str, title: str, place: str,
-          commute_min: int | None, summary: str, tags: list[str], flags: list[str], url: str) -> str:
+          commute_min: int | None, summary: str, required: str, tags: list[str], flags: list[str],
+          url: str) -> str:
     color = C_URGENT if urgent else C_ACCENT
     where = [f"📍 {escape(place)}"] if place else []
     if commute_min is not None:
         where.append(f"🚇 약 {commute_min}분")
-    summary_html = (
-        f'<div style="font-size:13px;color:{C_TEXT};line-height:1.5;margin-top:4px">📝 {escape(summary)}</div>'
-        if summary else ""
-    )
+    line = f'<div style="font-size:13px;color:{C_TEXT};line-height:1.5;margin-top:4px">'
+    summary_html = f"{line}📝 {escape(summary)}</div>" if summary else ""
+    if required:
+        summary_html += f"{line}✅ 필수: {escape(required)}</div>"
     return (
         f'<div style="border:1px solid {C_LINE};border-radius:12px;padding:12px 14px;margin:0 0 10px">'
         f'<div style="font-size:13px;color:{C_SUB}">'
@@ -90,7 +91,7 @@ def _job_card(j: Job, today: date) -> str:
     return _card(
         dday=_dday(j.deadline, today, j.deadline_text), urgent=False, company=j.company,
         source=j.source, title=title, place=j.address or j.location, commute_min=j.commute_min,
-        summary=j.summary, tags=j.tags, flags=j.flags, url=j.url,
+        summary=j.summary, required=j.required, tags=j.tags, flags=j.flags, url=j.url,
     )
 
 
@@ -98,7 +99,7 @@ def _closing_card(c: ClosingItem, today: date) -> str:
     return _card(
         dday=_dday(c.deadline, today, ""), urgent=True, company=c.company, source=c.source,
         title=f"{c.title} · {c.track}", place=c.address or c.location, commute_min=c.commute_min,
-        summary=c.summary, tags=c.tags, flags=c.flags, url=c.url,
+        summary=c.summary, required=c.required, tags=c.tags, flags=c.flags, url=c.url,
     )
 
 
@@ -147,6 +148,9 @@ def render_html(d: Digest) -> str:
     for site in d.failed_sites:
         name = SITE_NAMES.get(site, site)
         parts.append(_warning(f"⚠ {name} 수집 실패 — 사이트 구조가 바뀌었거나 접속이 막혔을 수 있습니다."))
+    for site in d.detail_failed_sites:
+        name = SITE_NAMES.get(site, site)
+        parts.append(_warning(f"⚠ {name} 상세 페이지 읽기 실패 — 주소 · 요약 없이 지역 목록으로 걸렀습니다."))
     if d.commute_failed:
         parts.append(_warning("⚠ 통근 시간 계산 실패 — 오늘은 지역 목록으로 걸렀습니다."))
 

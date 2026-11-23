@@ -38,6 +38,14 @@ class SubjectTest(unittest.TestCase):
 
 
 class HtmlTest(unittest.TestCase):
+    def test_required_line(self):
+        html = render_html(digest(new_by_track={"설계": [job("1", required="Creo <3년> & 영어")]}, new_total=1))
+        self.assertIn("✅ 필수: Creo &lt;3년&gt; &amp; 영어", html)
+
+    def test_no_required_line_when_empty(self):
+        html = render_html(digest(new_by_track={"설계": [job("1")]}, new_total=1))
+        self.assertNotIn("✅", html)
+
     def test_escapes(self):
         h = render_html(digest(new_by_track={"설계": [job("1", title="<b>개발</b> & 설계")]}, new_total=1))
         self.assertIn("&lt;b&gt;개발&lt;/b&gt; &amp; 설계", h)
@@ -47,6 +55,16 @@ class HtmlTest(unittest.TestCase):
         h = render_html(digest(failed_sites=["jobkorea"], closing=closing(1)))
         self.assertIn("⚠ 잡코리아 수집 실패", h)
         self.assertLess(h.index("⚠ 잡코리아 수집 실패"), h.index("마감 임박"))
+
+    def test_old_reminder_card_renders_blank(self):
+        c = ClosingItem("공고(예시)", "회사", "u", "saramin", "설계", TODAY + timedelta(days=2))
+        html = render_html(digest(closing=[c]))
+        self.assertNotIn("✅", html)
+        self.assertNotIn("📍", html)
+
+    def test_detail_failed_warning(self):
+        html = render_html(digest(detail_failed_sites=["jobkorea"]))
+        self.assertIn("⚠ 잡코리아 상세 페이지 읽기 실패", html)
 
     def test_commute_warning(self):
         self.assertIn("⚠ 통근 시간 계산 실패", render_html(digest(commute_failed=True)))

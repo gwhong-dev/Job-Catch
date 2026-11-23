@@ -28,6 +28,7 @@ class Job:
     # 상세 페이지에서 채우는 값 (모르면 빈 값)
     address: str = ""
     summary: str = ""
+    required: str = ""  # 필수조건 (자격요건 구역)
     tags: list[str] = field(default_factory=list)
     group: str = ""  # 갈래 안 세부 묶음
 

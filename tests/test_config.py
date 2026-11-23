@@ -100,7 +100,7 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(cfg.common.education, "")
         self.assertEqual(cfg.common.commute_limit_min, 60)
         self.assertEqual(cfg.common.commute_soft_min, 75)
-        self.assertEqual(cfg.common.max_detail_lookups, 60)
+        self.assertEqual(cfg.common.max_detail_lookups, 150)
         self.assertEqual(cfg.tracks[0].include_any, [])
 
 

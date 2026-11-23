@@ -1,13 +1,14 @@
 """이미 보낸 공고 기록 (data/seen.json).
 
-마감 임박 공고를 다시 알리려고 공고 정보(제목 · 회사 · 링크 · 마감일)도 함께 둔다.
-개인 정보나 통근 시간은 넣지 않는다.
+마감 임박 공고를 다시 알리려고 공고 정보(제목 · 회사 · 링크 · 마감일)와
+카드 내용(근무지 · 요약 · 필수조건 · 태그 · 확인 표시)도 함께 둔다.
+개인 정보나 통근 시간은 넣지 않는다 (통근은 다시 알릴 때 주소로 다시 계산).
 """
 
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -24,6 +25,17 @@ class Entry:
     deadline: date | None
     first_sent: date
     excluded: bool = False  # 상세 조회 뒤 제외된 공고: 다시 조회하지 않으려고 잠시 기억
+    # 다시 알림 카드용 (예전 기록에는 없어서 빈 값)
+    location: str = ""
+    address: str = ""
+    summary: str = ""
+    required: str = ""
+    tags: list[str] = field(default_factory=list)
+    flags: list[str] = field(default_factory=list)
+
+
+def _str_list(value) -> list[str]:
+    return [str(v) for v in value] if isinstance(value, list) else []
 
 
 EXCLUDED_KEEP_DAYS = 30
@@ -43,6 +55,12 @@ def _from_json(d: dict) -> Entry:
         deadline=date.fromisoformat(d["deadline"]) if d.get("deadline") else None,
         first_sent=date.fromisoformat(d["first_sent"]),
         excluded=bool(d.get("excluded", False)),
+        location=str(d.get("location", "")),
+        address=str(d.get("address", "")),
+        summary=str(d.get("summary", "")),
+        required=str(d.get("required", "")),
+        tags=_str_list(d.get("tags")),
+        flags=_str_list(d.get("flags")),
     )
 
 
@@ -80,6 +98,8 @@ def record(entries: dict[str, Entry], jobs: list[Job], today: date) -> None:
         entries[j.key] = Entry(
             title=j.title, company=j.company, url=j.url, source=j.source,
             track=j.track, deadline=j.deadline, first_sent=today,
+            location=j.location, address=j.address, summary=j.summary, required=j.required,
+            tags=list(j.tags), flags=list(j.flags),
         )
 
 
