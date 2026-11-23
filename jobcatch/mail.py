@@ -24,6 +24,7 @@ C_ACCENT = "#0b57d0"
 C_WARN_BG = "#fff4e5"
 C_WARN = "#8a4b00"
 C_URGENT = "#c5221f"
+C_FIT = {"상": "#1a7f37", "중": C_ACCENT, "하": C_WARN}  # 색만 다르게: '하' 도 숨기거나 흐리게 하지 않는다
 
 
 class MailError(Exception):
@@ -61,13 +62,19 @@ def _badges(items: list[str], bg: str, color: str) -> str:
 
 def _card(*, dday: str, urgent: bool, company: str, source: str, title: str, place: str,
           commute_min: int | None, summary: str, required: str, tags: list[str], flags: list[str],
-          url: str) -> str:
+          url: str, fit: str = "", fit_reason: str = "") -> str:
     color = C_URGENT if urgent else C_ACCENT
     where = [f"📍 {escape(place)}"] if place else []
     if commute_min is not None:
         where.append(f"🚇 약 {commute_min}분")
     line = f'<div style="font-size:13px;color:{C_TEXT};line-height:1.5;margin-top:4px">'
-    summary_html = f"{line}📝 {escape(summary)}</div>" if summary else ""
+    summary_html = ""
+    if fit:
+        reason = f" · {escape(fit_reason)}" if fit_reason else ""
+        summary_html += (f'{line}🎯 <b style="color:{C_FIT.get(fit, C_TEXT)}">{escape(fit)}</b>'
+                         f"{reason}</div>")
+    if summary:
+        summary_html += f"{line}📝 {escape(summary)}</div>"
     if required:
         summary_html += f"{line}✅ 필수: {escape(required)}</div>"
     return (
@@ -92,6 +99,7 @@ def _job_card(j: Job, today: date) -> str:
         dday=_dday(j.deadline, today, j.deadline_text), urgent=False, company=j.company,
         source=j.source, title=title, place=j.address or j.location, commute_min=j.commute_min,
         summary=j.summary, required=j.required, tags=j.tags, flags=j.flags, url=j.url,
+        fit=j.fit, fit_reason=j.fit_reason,
     )
 
 
@@ -100,6 +108,7 @@ def _closing_card(c: ClosingItem, today: date) -> str:
         dday=_dday(c.deadline, today, ""), urgent=True, company=c.company, source=c.source,
         title=f"{c.title} · {c.track}", place=c.address or c.location, commute_min=c.commute_min,
         summary=c.summary, required=c.required, tags=c.tags, flags=c.flags, url=c.url,
+        fit=c.fit, fit_reason=c.fit_reason,
     )
 
 
@@ -153,6 +162,8 @@ def render_html(d: Digest) -> str:
         parts.append(_warning(f"⚠ {name} 상세 페이지 읽기 실패 — 주소 · 요약 없이 지역 목록으로 걸렀습니다."))
     if d.commute_failed:
         parts.append(_warning("⚠ 통근 시간 계산 실패 — 오늘은 지역 목록으로 걸렀습니다."))
+    if d.ai is not None and d.ai.stopped is not None:
+        parts.append(_warning("⚠ AI 요약 중단 — 일부 카드는 규칙 요약입니다."))
 
     parts.append(_toc(d))
 

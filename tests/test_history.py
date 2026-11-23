@@ -26,6 +26,33 @@ class HistoryTest(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
+    def test_record_and_load_fit(self):
+        j = job("1", TODAY + timedelta(days=3))
+        j.fit, j.fit_reason = "상", "이유"
+        entries = {}
+        history.record(entries, [j], TODAY)
+        history.save(self.path, entries)
+        e = history.load(self.path)["saramin:1"]
+        self.assertEqual((e.fit, e.fit_reason), ("상", "이유"))
+
+    def test_old_entry_without_fit_loads_empty(self):
+        self.path.parent.mkdir(parents=True)
+        self.path.write_text(json.dumps({"saramin:1": {
+            "title": "t", "company": "c", "url": "u", "source": "saramin", "track": "설계",
+            "deadline": None, "first_sent": "2026-11-20"}}), encoding="utf-8")
+        e = history.load(self.path)["saramin:1"]
+        self.assertEqual((e.fit, e.fit_reason), ("", ""))
+
+    def test_body_and_images_not_saved(self):
+        j = job("1")
+        j.body, j.images = "본문비밀", ["https://pds.saramin.co.kr/a.jpg"]
+        entries = {}
+        history.record(entries, [j], TODAY)
+        history.save(self.path, entries)
+        text = self.path.read_text(encoding="utf-8")
+        self.assertNotIn("본문비밀", text)
+        self.assertNotIn("pds.saramin", text)
+
     def test_roundtrip(self):
         entries = {}
         history.record(entries, [job("1", TODAY + timedelta(days=3)), job("2")], TODAY)
