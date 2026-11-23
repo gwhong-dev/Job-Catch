@@ -18,6 +18,23 @@ Fetcher = Callable[[str, list[str], int, float, date], list[Job]]
 DetailFetcher = Callable[[str, date], Detail]
 
 CLOSING_DAYS = 7
+DETAIL_TIME_LIMIT_SEC = 15 * 60  # 상세 조회 단계가 이보다 길면 남은 공고는 내일로 (워크플로 제한 30분)
+
+
+def _closing_soon(job: Job, today: date) -> bool:
+    return job.deadline is not None and today <= job.deadline <= today + timedelta(days=CLOSING_DAYS)
+
+
+def _lookup_order(jobs: list[Job], today: date) -> list[Job]:
+    """상세 조회 순서: 마감 임박(목록 마감일 기준) 먼저, 나머지는 갈래를 번갈아 한 건씩."""
+    first = [j for j in jobs if _closing_soon(j, today)]
+    by_track: dict[str, list[Job]] = {}
+    for j in jobs:
+        if not _closing_soon(j, today):
+            by_track.setdefault(j.track, []).append(j)
+    queues = list(by_track.values())
+    rest = [q[i] for i in range(max(map(len, queues), default=0)) for q in queues if i < len(q)]
+    return first + rest
 
 
 @dataclass
@@ -89,7 +106,7 @@ class Digest:
     new_total: int
     commute_failed: bool = False
     excluded_after_lookup: list[Job] = field(default_factory=list)  # 다음 날 다시 조회하지 않게 기록
-    unchecked_by_cap: int = 0  # 상세 조회 상한 때문에 지역 목록으로만 판정한 공고 수
+    deferred: int = 0  # 상세 조회 상한 · 시간에 걸려 내일 다시 볼 공고 수 (보낸 기록에 남기지 않음)
 
 
 def _province(location: str) -> str:
@@ -101,15 +118,18 @@ class _Commute:
     """통근 모드 상태: 집 좌표, 조회 횟수, 실패 여부."""
 
     def __init__(self, cfg: Config, today: date, kakao: Kakao | None,
-                 details: dict[str, DetailFetcher] | None, sleep: Callable[[float], None]):
+                 details: dict[str, DetailFetcher] | None, sleep: Callable[[float], None],
+                 clock: Callable[[], float] = time.monotonic):
         self.cfg = cfg
         self.today = today
         self.kakao = kakao
         self.details = details or {}
         self.sleep = sleep
+        self.clock = clock
+        self.started: float | None = None  # 첫 상세 조회 시각
         self.failed = False
         self.lookups = 0
-        self.capped = 0
+        self.deferred = 0
         self.looked_up = False  # 마지막 judge 가 상세 페이지를 읽었는지
         self.route_tries = 0
         self.route_found = 0
@@ -133,16 +153,29 @@ class _Commute:
             return False
         return prov not in self.provinces
 
+    def _out_of_budget(self) -> bool:
+        if self.lookups >= self.cfg.common.max_detail_lookups:
+            return True
+        if self.started is None:
+            self.started = self.clock()
+            return False
+        return self.clock() - self.started >= DETAIL_TIME_LIMIT_SEC
+
     def judge(self, job: Job, track: Track) -> tuple[str, list[str]]:
-        """상세 페이지 → 근무지 → 대중교통 시간으로 판정. 못 구하면 지역 목록 판정."""
+        """상세 페이지 → 근무지 → 대중교통 시간으로 판정. 못 구하면 지역 목록 판정.
+
+        상한 · 시간에 걸리면 마감 임박 공고만 지역 목록으로 판정하고, 나머지는 "defer" (내일 다시).
+        """
         common = self.cfg.common
         fetch = self.details.get(job.source)
         self.looked_up = False
         if not fetch:
             return classify(job, common, track)
-        if self.lookups >= common.max_detail_lookups:
-            self.capped += 1
-            return classify(job, common, track)
+        if self._out_of_budget():
+            if _closing_soon(job, self.today):
+                return classify(job, common, track)
+            self.deferred += 1
+            return "defer", []
         self.looked_up = True
         if self.lookups:
             self.sleep(self.cfg.delay_sec)
@@ -186,14 +219,15 @@ def build(
     details: dict[str, DetailFetcher] | None = None,
     kakao: Kakao | None = None,
     sleep: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
 ) -> tuple[Digest, list[Job]]:
-    """두 번째 값은 기록에 남길 새 공고 전부 (카드 상한으로 잘린 것 포함)."""
+    """두 번째 값은 기록에 남길 새 공고 전부 (카드 상한으로 잘린 것 포함, 내일로 미룬 것 제외)."""
     tracks = {t.name: t for t in cfg.tracks}
-    commute = _Commute(cfg, today, kakao, details, sleep)
+    commute = _Commute(cfg, today, kakao, details, sleep, clock)
 
     kept: list[Job] = []
     excluded_after_lookup: list[Job] = []
-    for job in collected.jobs:
+    for job in _lookup_order(collected.jobs, today):
         commute.looked_up = False
         if job.key in entries or job.track not in tracks:
             continue
@@ -209,6 +243,8 @@ def build(
             if status != "exclude":
                 # 통근 계산이 꺼져 있어도 상세 페이지를 읽는다: 근무지 주소 · 요약, 잡코리아 학력 보충
                 status, flags = commute.judge(job, track)
+        if status == "defer":
+            continue
         if status == "exclude":
             if commute.looked_up:
                 excluded_after_lookup.append(job)
@@ -257,6 +293,6 @@ def build(
         new_total=len(kept),
         commute_failed=commute.failed or (commute.route_tries >= 3 and commute.route_found == 0),
         excluded_after_lookup=excluded_after_lookup,
-        unchecked_by_cap=commute.capped,
+        deferred=commute.deferred,
     )
     return digest, kept

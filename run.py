@@ -65,8 +65,8 @@ def main(
         print(f"경고: {mail.SITE_NAMES.get(site, site)} 수집 실패", file=sys.stderr)
     if digest.commute_failed:
         print("경고: 통근 시간 계산 실패", file=sys.stderr)
-    if digest.unchecked_by_cap:
-        print(f"참고: 상세 조회 상한으로 {digest.unchecked_by_cap}건은 지역 목록으로만 판정")
+    if digest.deferred:
+        print(f"참고: 상세 조회 상한으로 {digest.deferred}건은 내일 다시")
 
     subject = mail.subject(digest)
     html = mail.render_html(digest)

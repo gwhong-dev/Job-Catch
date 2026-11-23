@@ -32,7 +32,7 @@ class Common:
     home_address: str = ""
     commute_limit_min: int = 60
     commute_soft_min: int = 75
-    max_detail_lookups: int = 60
+    max_detail_lookups: int = 150
     extra_tags: list[str] = field(default_factory=list)  # 요약 태그로 더 찾을 단어
 
 
@@ -109,7 +109,7 @@ def load_config(env: Mapping[str, str], path: Path) -> Config:
             home_address=str(c.get("home_address", "")),
             commute_limit_min=int(c.get("commute_limit_min", 60)),
             commute_soft_min=int(c.get("commute_soft_min", 75)),
-            max_detail_lookups=int(c.get("max_detail_lookups", 60)),
+            max_detail_lookups=int(c.get("max_detail_lookups", 150)),
             extra_tags=_str_list(c.get("extra_tags", []), "common.extra_tags"),
         )
     except (TypeError, ValueError):

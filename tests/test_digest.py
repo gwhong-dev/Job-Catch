@@ -171,13 +171,65 @@ class CommuteTest(unittest.TestCase):
         self.assertEqual(new, [])
         self.assertEqual(details.calls, [])
 
-    def test_lookup_cap(self):
+    def test_lookup_cap_defers(self):
         details = CountingDetails()
-        kakao = FakeKakao({(1.0, 1.0): 30})
-        _, new = build(collected(job("1"), job("2"), job("3")), self.cfg(max_detail_lookups=1), {}, TODAY,
-                       details={"saramin": details}, kakao=kakao, sleep=NO_SLEEP)
+        d, new = build(collected(job("1"), job("2"), job("3")), self.cfg(max_detail_lookups=1), {}, TODAY,
+                       details={"saramin": details}, kakao=FakeKakao({(1.0, 1.0): 30}), sleep=NO_SLEEP)
         self.assertEqual(details.calls, ["1"])
-        self.assertEqual([j.commute_min for j in new], [30, None, None])  # 나머지는 지역 목록 판정
+        self.assertEqual([j.job_id for j in new], ["1"])
+        self.assertEqual(d.deferred, 2)
+
+    def test_capped_closing_still_sent(self):
+        a = job("1", deadline=TODAY + timedelta(days=3))
+        b = job("2", deadline=TODAY + timedelta(days=4))
+        d, new = build(collected(a, b), self.cfg(max_detail_lookups=1), {}, TODAY,
+                       details={"saramin": CountingDetails()}, kakao=FakeKakao({(1.0, 1.0): 30}), sleep=NO_SLEEP)
+        self.assertEqual([(j.job_id, j.commute_min) for j in new], [("1", 30), ("2", None)])  # 2 는 지역 판정
+        self.assertEqual(d.deferred, 0)
+
+    def test_closing_first_then_defer(self):
+        soon = job("2", deadline=TODAY + timedelta(days=3))
+        d, new = build(collected(job("1"), soon), self.cfg(max_detail_lookups=1), {}, TODAY,
+                       details={"saramin": CountingDetails()}, kakao=FakeKakao({(1.0, 2.0): 30}), sleep=NO_SLEEP)
+        self.assertEqual([j.job_id for j in new], ["2"])
+        self.assertEqual(d.deferred, 1)
+
+    def test_closing_looked_up_first(self):
+        details = CountingDetails()
+        soon = job("9", deadline=TODAY + timedelta(days=2))
+        build(collected(job("1"), job("2"), soon), self.cfg(max_detail_lookups=1), {}, TODAY,
+              details={"saramin": details}, kakao=FakeKakao({}), sleep=NO_SLEEP)
+        self.assertEqual(details.calls, ["9"])
+
+    def test_unknown_deadline_capped_is_deferred(self):
+        a = job("1", source="jobkorea", track="개발")
+        b = job("2", source="jobkorea", track="개발")
+        d, new = build(collected(a, b), self.cfg(max_detail_lookups=1), {}, TODAY,
+                       details={"jobkorea": CountingDetails()}, kakao=FakeKakao({(1.0, 1.0): 30}),
+                       sleep=NO_SLEEP)
+        self.assertEqual([j.job_id for j in new], ["1"])
+        self.assertEqual(d.deferred, 1)
+
+    def test_tracks_take_turns(self):
+        details = CountingDetails()
+        jobs = [job("1"), job("2"), job("3"), job("4", track="개발"), job("5", track="개발")]
+        build(collected(*jobs), self.cfg(max_detail_lookups=2), {}, TODAY,
+              details={"saramin": details}, kakao=FakeKakao({}), sleep=NO_SLEEP)
+        self.assertEqual(details.calls, ["1", "4"])
+
+    def test_time_guard_defers(self):
+        details = CountingDetails()
+        d, new = build(collected(job("1"), job("2")), self.cfg(), {}, TODAY,
+                       details={"saramin": details}, kakao=FakeKakao({(1.0, 1.0): 30}), sleep=NO_SLEEP,
+                       clock=lambda: 901 if details.calls else 0)
+        self.assertEqual(details.calls, ["1"])
+        self.assertEqual(d.deferred, 1)
+
+    def test_no_kakao_cap_defers(self):
+        d, new = build(collected(job("1"), job("2")), config(max_detail_lookups=1), {}, TODAY,
+                       details={"saramin": CountingDetails()}, kakao=None, sleep=NO_SLEEP)
+        self.assertEqual([j.job_id for j in new], ["1"])
+        self.assertEqual(d.deferred, 1)
 
     def test_no_route_falls_back_to_region(self):
         _, new = build(collected(job("1", location="경기 안산시")), self.cfg(), {}, TODAY,
@@ -238,11 +290,6 @@ class CommuteTest(unittest.TestCase):
         d, _ = build(collected(job("1"), job("2"), job("3")), self.cfg(), {}, TODAY,
                      details={"saramin": CountingDetails()}, kakao=FakeKakao({}), sleep=NO_SLEEP)
         self.assertTrue(d.commute_failed)
-
-    def test_lookup_cap_counted(self):
-        d, _ = build(collected(job("1"), job("2"), job("3")), self.cfg(max_detail_lookups=1), {}, TODAY,
-                     details={"saramin": CountingDetails()}, kakao=FakeKakao({(1.0, 1.0): 30}), sleep=NO_SLEEP)
-        self.assertEqual(d.unchecked_by_cap, 2)
 
     def test_no_kakao_still_reads_detail_for_summary(self):
         details = CountingDetails()
