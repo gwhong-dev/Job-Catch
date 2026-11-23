@@ -110,6 +110,10 @@ class Digest:
     detail_read: int = 0
     detail_failed: int = 0
     detail_failed_sites: list[str] = field(default_factory=list)  # 시도 3건 이상 중 절반 이상 실패한 사이트
+    # 분석 적중률: 상세 본문이 있던 공고 중 요약 · 필수조건이 나온 건수 (제외된 공고 포함)
+    with_body: int = 0
+    with_summary: int = 0
+    with_required: int = 0
 
 
 def _province(location: str) -> str:
@@ -134,6 +138,9 @@ class _Commute:
         self.lookups = 0
         self.deferred = 0
         self.read = 0  # 상세를 받아 온 건수
+        self.with_body = 0  # 그중 본문 글자가 있는 건수 (적중률의 분모)
+        self.with_summary = 0
+        self.with_required = 0
         self.tries: dict[str, int] = {}  # 사이트별 상세 조회 시도
         self.fails: dict[str, int] = {}  # 사이트별 실패 (예외 · 빈 응답)
         self.looked_up = False  # 마지막 judge 가 상세 페이지를 읽었는지
@@ -216,6 +223,9 @@ class _Commute:
         if detail.body:
             a = analyze(detail.body, common.extra_tags)
             job.summary, job.required, job.tags = a.duty, a.required, a.tags
+            self.with_body += 1
+            self.with_summary += bool(a.duty)
+            self.with_required += bool(a.required)
         minutes = None
         if self.on:
             try:
@@ -251,8 +261,9 @@ def build(
 
     kept: list[Job] = []
     excluded_after_lookup: list[Job] = []
-    for job in _lookup_order(collected.jobs, today):
-        commute.looked_up = False
+    # 상세 조회 전에 빠질 공고를 먼저 거른다. 그래야 갈래 번갈아 순서가 실제 후보 기준이 된다
+    candidates: list[Job] = []
+    for job in collected.jobs:
         if job.key in entries or job.track not in tracks:
             continue
         track = tracks[job.track]
@@ -261,12 +272,15 @@ def build(
                 continue
             if classify(job, cfg.common, track, location="pass")[0] == "exclude":
                 continue  # 지역과 상관없이 빠지는 공고는 상세 조회하지 않는다
-            status, flags = commute.judge(job, track)
-        else:
-            status, flags = classify(job, cfg.common, track)
-            if status != "exclude":
-                # 통근 계산이 꺼져 있어도 상세 페이지를 읽는다: 근무지 주소 · 요약, 잡코리아 학력 보충
-                status, flags = commute.judge(job, track)
+        elif classify(job, cfg.common, track)[0] == "exclude":
+            continue
+        candidates.append(job)
+
+    for job in _lookup_order(candidates, today):
+        commute.looked_up = False
+        track = tracks[job.track]
+        # 통근 계산이 꺼져 있어도 상세 페이지를 읽는다: 근무지 주소 · 요약, 잡코리아 학력 보충
+        status, flags = commute.judge(job, track)
         if status == "defer":
             continue
         if status == "exclude":
@@ -321,6 +335,9 @@ def build(
         excluded_after_lookup=excluded_after_lookup,
         deferred=commute.deferred,
         detail_read=commute.read,
+        with_body=commute.with_body,
+        with_summary=commute.with_summary,
+        with_required=commute.with_required,
         detail_failed=sum(commute.fails.values()),
         detail_failed_sites=[s for s, n in commute.tries.items()
                              if n >= 3 and commute.fails.get(s, 0) * 2 >= n],

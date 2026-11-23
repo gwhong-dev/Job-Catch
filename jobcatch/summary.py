@@ -36,6 +36,9 @@ TEMPLATE_RESIDUE = ["상세내용을 입력하세요", "내용을 입력하세�
 FILLER_WORDS = {"및", "등", "외"}
 _BULLETS = "▣•ㆍ·-*■□◆◇○●▶►✔✓※▪◎"
 _OPEN_BRACKETS = "[【<(〔「『"
+_LIST_BULLETS = "-•·*ㆍ"
+_HEAD_MARKS = "■□▣▶►◆◇●○◎※"  # 한 줄에 제목을 이어 쓸 때 쓰는 표시 (- · * 는 본문에도 흔해서 뺌)
+_PREFERRED_NOTE = re.compile(r"\s*[(\[（][^()\[\]（）]*우대[^()\[\]（）]*[)\]）]")  # "(석사 우대)"
 _MEANING = re.compile(r"[0-9A-Za-z가-힣]")
 _LETTER = re.compile(r"[A-Za-z가-힣]")
 MAX_DUTY = 80
@@ -99,11 +102,13 @@ def page_text(html: str) -> str:
 
 
 def _starts_line(text: str, i: int) -> bool:
-    """제목으로 볼 자리인가: 줄 맨 앞(글머리표 · 번호 · 기호 다음)이거나 여는 괄호 바로 뒤."""
-    if i > 0 and text[i - 1] in _OPEN_BRACKETS:
+    """제목으로 볼 자리인가: 줄 맨 앞(글머리표 · 번호 · 기호 다음), 여는 괄호 바로 뒤, 또는 ■ 같은 표시 뒤."""
+    before = text[:i].rstrip(" ")
+    if before and before[-1] in _OPEN_BRACKETS + _HEAD_MARKS:
         return True
-    line_start = text.rfind("\n", 0, i) + 1
-    return _LETTER.search(text, line_start, i) is None
+    prefix = text[text.rfind("\n", 0, i) + 1: i]
+    # "- 급여 정산 …" 같은 목록 항목은 제목이 아니다
+    return _LETTER.search(prefix) is None and not any(b in prefix for b in _LIST_BULLETS)
 
 
 def _find_heading(text: str, words: list[str], start: int = 0, line_start: bool = False) -> tuple[int, int] | None:
@@ -123,12 +128,27 @@ def _first(*hits: tuple[int, int] | None) -> tuple[int, int] | None:
     return min(found) if found else None
 
 
+HEADING_LINE_REST = 15  # 제목 줄에 이어 붙은 글이 이만큼 짧으면 "주요업무 및 자격요건" 같은 제목 줄로 본다
+
+
+def _stop(body: str, words: list[str], start: int) -> tuple[int, int] | None:
+    """구역의 끝: 줄 맨 앞(· 괄호 · ■ 뒤)의 끝 제목, 또는 짧은 제목 줄 안에 이어 붙은 끝 제목.
+
+    본문 문장 속의 "복지몰", "급여 정산" 같은 말로 구역이 잘리지 않게 줄 중간은 보지 않는다.
+    """
+    line_end = body.find("\n", start)
+    line_end = len(body) if line_end < 0 else line_end
+    same_line = None
+    if line_end - start <= HEADING_LINE_REST:
+        same_line = _find_heading(body[:line_end], words, start)
+    return _first(same_line, _find_heading(body, words, start, line_start=True))
+
+
 def _duty_segment(body: str) -> str | None:
     head = _find_heading(body, DUTY_HEADINGS, line_start=True)
     if not head:
         return None
-    stop = _first(_find_heading(body, STOP_HEADINGS, head[1]),
-                  _find_heading(body, INTRO_HEADINGS, head[1], line_start=True))
+    stop = _stop(body, STOP_HEADINGS + INTRO_HEADINGS, head[1])
     return body[head[1]: stop[0] if stop else len(body)]
 
 
@@ -136,8 +156,7 @@ def _required_segment(body: str) -> str | None:
     head = _find_heading(body, REQUIRED_HEADINGS, line_start=True)
     if not head:
         return None
-    stop = _first(_find_heading(body, REQUIRED_STOPS, head[1]),
-                  _find_heading(body, ["우대"] + INTRO_HEADINGS + DUTY_HEADINGS, head[1], line_start=True))
+    stop = _stop(body, REQUIRED_STOPS + ["우대"] + INTRO_HEADINGS + DUTY_HEADINGS, head[1])
     return body[head[1]: stop[0] if stop else len(body)]
 
 
@@ -181,7 +200,9 @@ def extract_required(body: str) -> str:
     segment = _required_segment(body)
     if segment is None:
         return ""
-    return _join([i for i in _items(segment) if "우대" not in i])
+    # "학사 이상 (석사 우대)" 는 괄호만 떼고, "우대: 영어" 처럼 우대로 시작하는 항목은 뺀다
+    items = [_PREFERRED_NOTE.sub("", i).strip() for i in _items(segment)]
+    return _join([i for i in items if i and not i.startswith("우대")])
 
 
 @dataclass

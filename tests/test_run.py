@@ -103,7 +103,7 @@ class RunTest(unittest.TestCase):
                      today=TODAY, sleep=lambda s: None,
                      details={"saramin": lambda job_id, today: Detail(address="a", body=body)})
         log = out.getvalue() + err.getvalue()
-        self.assertIn("상세 읽음 1 · 상세 실패 0 · 요약 1 · 필수조건 1 · 내일 다시 0", log)
+        self.assertIn("상세 읽음 1 · 상세 실패 0 · 본문 1건 중 요약 1 · 필수조건 1 · 내일 다시 0", log)
         self.assertNotIn("지그 설계", log)
         self.assertNotIn("비밀제목", log)
 

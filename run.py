@@ -67,8 +67,8 @@ def main(
         print("경고: 통근 시간 계산 실패", file=sys.stderr)
     # 분석 적중률 (방법 2로 바꿀지 판단하는 재료). 건수만 남긴다
     print(f"상세 읽음 {digest.detail_read} · 상세 실패 {digest.detail_failed}"
-          f" · 요약 {sum(1 for j in new_jobs if j.summary)}"
-          f" · 필수조건 {sum(1 for j in new_jobs if j.required)} · 내일 다시 {digest.deferred}")
+          f" · 본문 {digest.with_body}건 중 요약 {digest.with_summary} · 필수조건 {digest.with_required}"
+          f" · 내일 다시 {digest.deferred}")
     for site in digest.detail_failed_sites:
         print(f"경고: {mail.SITE_NAMES.get(site, site)} 상세 페이지 읽기 실패", file=sys.stderr)
 

@@ -142,6 +142,24 @@ class AnalyzeTest(unittest.TestCase):
     def test_empty_body(self):
         self.assertEqual(analyze("", []), Analysis())
 
+    def test_stop_word_inside_duty_line_kept(self):
+        body = "주요업무\n- 사내 복지몰 서비스 개발 (Java/Spring)\n- 급여 정산 시스템 운영"
+        a = analyze(body, [])
+        self.assertEqual(a.duty, "사내 복지몰 서비스 개발 (Java/Spring) / 급여 정산 시스템 운영")
+        self.assertEqual(a.tags, ["Java", "Spring"])
+
+    def test_stop_word_inside_required_line_kept(self):
+        body = "지원자격\n- 경력 3년 이상\n- 클린룸 근무환경 적응 가능자\n- AutoCAD 능숙자"
+        self.assertEqual(extract_required(body), "경력 3년 이상 / 클린룸 근무환경 적응 가능자 / AutoCAD 능숙자")
+
+    def test_headings_after_bullet_mark_on_one_line(self):
+        a = analyze("■ 담당업무: 지그 설계 ■ 자격요건: Creo 3년", [])
+        self.assertEqual((a.duty, a.required), ("지그 설계", "Creo 3년"))
+
+    def test_required_keeps_item_with_trailing_preferred(self):
+        body = "자격요건\n- 학사 이상 (석사 우대)\n- 경력 3년 이상\n우대: 영어"
+        self.assertEqual(extract_required(body), "학사 이상 / 경력 3년 이상")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -217,6 +217,25 @@ class CommuteTest(unittest.TestCase):
               details={"saramin": details}, kakao=FakeKakao({}), sleep=NO_SLEEP)
         self.assertEqual(details.calls, ["1", "4"])
 
+    def test_tracks_take_turns_among_real_candidates(self):
+        seen = {f"saramin:{i}": Entry("t", "c", "u", "saramin", "설계", None, TODAY - timedelta(days=1))
+                for i in range(1, 21)}
+        jobs = [job(str(i)) for i in range(1, 26)] + [job(str(i), track="개발") for i in range(101, 126)]
+        details = CountingDetails()
+        build(collected(*jobs), self.cfg(max_detail_lookups=4), seen, TODAY,
+              details={"saramin": details}, kakao=FakeKakao({}), sleep=NO_SLEEP)
+        self.assertEqual(details.calls, ["21", "101", "22", "102"])
+
+    def test_analysis_counts(self):
+        bodies = {"1": "주요업무\n- 지그 설계(예시)\n자격요건\n- Creo 3년 이상", "2": "이미지 공고", "3": ""}
+
+        def details(job_id, today):
+            return Detail(address="a", body=bodies[job_id])
+
+        d, _ = build(collected(job("1"), job("2"), job("3")), self.cfg(), {}, TODAY,
+                     details={"saramin": details}, kakao=FakeKakao({}), sleep=NO_SLEEP)
+        self.assertEqual((d.detail_read, d.with_body, d.with_summary, d.with_required), (3, 2, 1, 1))
+
     def test_time_guard_defers(self):
         details = CountingDetails()
         d, new = build(collected(job("1"), job("2")), self.cfg(), {}, TODAY,
