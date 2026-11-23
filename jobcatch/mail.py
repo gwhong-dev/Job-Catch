@@ -148,6 +148,9 @@ def render_html(d: Digest) -> str:
     for site in d.failed_sites:
         name = SITE_NAMES.get(site, site)
         parts.append(_warning(f"⚠ {name} 수집 실패 — 사이트 구조가 바뀌었거나 접속이 막혔을 수 있습니다."))
+    for site in d.detail_failed_sites:
+        name = SITE_NAMES.get(site, site)
+        parts.append(_warning(f"⚠ {name} 상세 페이지 읽기 실패 — 주소 · 요약 없이 지역 목록으로 걸렀습니다."))
     if d.commute_failed:
         parts.append(_warning("⚠ 통근 시간 계산 실패 — 오늘은 지역 목록으로 걸렀습니다."))
 

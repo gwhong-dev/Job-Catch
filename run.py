@@ -65,8 +65,12 @@ def main(
         print(f"경고: {mail.SITE_NAMES.get(site, site)} 수집 실패", file=sys.stderr)
     if digest.commute_failed:
         print("경고: 통근 시간 계산 실패", file=sys.stderr)
-    if digest.deferred:
-        print(f"참고: 상세 조회 상한으로 {digest.deferred}건은 내일 다시")
+    # 분석 적중률 (방법 2로 바꿀지 판단하는 재료). 건수만 남긴다
+    print(f"상세 읽음 {digest.detail_read} · 상세 실패 {digest.detail_failed}"
+          f" · 요약 {sum(1 for j in new_jobs if j.summary)}"
+          f" · 필수조건 {sum(1 for j in new_jobs if j.required)} · 내일 다시 {digest.deferred}")
+    for site in digest.detail_failed_sites:
+        print(f"경고: {mail.SITE_NAMES.get(site, site)} 상세 페이지 읽기 실패", file=sys.stderr)
 
     subject = mail.subject(digest)
     html = mail.render_html(digest)

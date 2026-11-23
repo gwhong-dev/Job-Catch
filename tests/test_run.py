@@ -93,6 +93,20 @@ class RunTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertTrue(history.load(self.seen)["saramin:1"].excluded)
 
+    def test_logs_analysis_counts_only(self):
+        from jobcatch.models import Detail
+
+        body = "주요업무\n- 지그 설계(예시)\n자격요건\n- Creo 3년 이상"
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            run.main(["--dry-run"], self.env, self.root, fetchers={"saramin": fake_saramin}, sender=Sender(),
+                     today=TODAY, sleep=lambda s: None,
+                     details={"saramin": lambda job_id, today: Detail(address="a", body=body)})
+        log = out.getvalue() + err.getvalue()
+        self.assertIn("상세 읽음 1 · 상세 실패 0 · 요약 1 · 필수조건 1 · 내일 다시 0", log)
+        self.assertNotIn("지그 설계", log)
+        self.assertNotIn("비밀제목", log)
+
     def test_bad_config_exit_2(self):
         code, log = self.main([], env={"JOBCATCH_CONFIG": "["})
         self.assertEqual(code, 2)

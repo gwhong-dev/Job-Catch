@@ -225,6 +225,31 @@ class CommuteTest(unittest.TestCase):
         self.assertEqual(details.calls, ["1"])
         self.assertEqual(d.deferred, 1)
 
+    def test_detail_failures_warned(self):
+        def boom(job_id, today):
+            raise RuntimeError("403")
+
+        d, new = build(collected(job("1"), job("2"), job("3")), self.cfg(), {}, TODAY,
+                       details={"saramin": boom}, kakao=FakeKakao({}), sleep=NO_SLEEP)
+        self.assertEqual(len(new), 3)  # 실패해도 지역 목록으로 실림
+        self.assertEqual(d.detail_failed, 3)
+        self.assertEqual(d.detail_failed_sites, ["saramin"])
+
+    def test_few_failures_not_warned(self):
+        def flaky(job_id, today):
+            if job_id == "1":
+                raise RuntimeError("timeout")
+            return Detail(address="a", coords=(1.0, 1.0))
+
+        d, _ = build(collected(job("1"), job("2"), job("3")), self.cfg(), {}, TODAY,
+                     details={"saramin": flaky}, kakao=FakeKakao({(1.0, 1.0): 30}), sleep=NO_SLEEP)
+        self.assertEqual((d.detail_read, d.detail_failed, d.detail_failed_sites), (2, 1, []))
+
+    def test_empty_detail_counts_as_failure(self):
+        d, _ = build(collected(job("1"), job("2"), job("3")), self.cfg(), {}, TODAY,
+                     details={"saramin": lambda i, t: Detail()}, kakao=FakeKakao({}), sleep=NO_SLEEP)
+        self.assertEqual((d.detail_read, d.detail_failed, d.detail_failed_sites), (0, 3, ["saramin"]))
+
     def test_no_kakao_cap_defers(self):
         d, new = build(collected(job("1"), job("2")), config(max_detail_lookups=1), {}, TODAY,
                        details={"saramin": CountingDetails()}, kakao=None, sleep=NO_SLEEP)

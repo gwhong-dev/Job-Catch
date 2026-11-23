@@ -107,6 +107,9 @@ class Digest:
     commute_failed: bool = False
     excluded_after_lookup: list[Job] = field(default_factory=list)  # 다음 날 다시 조회하지 않게 기록
     deferred: int = 0  # 상세 조회 상한 · 시간에 걸려 내일 다시 볼 공고 수 (보낸 기록에 남기지 않음)
+    detail_read: int = 0
+    detail_failed: int = 0
+    detail_failed_sites: list[str] = field(default_factory=list)  # 시도 3건 이상 중 절반 이상 실패한 사이트
 
 
 def _province(location: str) -> str:
@@ -130,6 +133,9 @@ class _Commute:
         self.failed = False
         self.lookups = 0
         self.deferred = 0
+        self.read = 0  # 상세를 받아 온 건수
+        self.tries: dict[str, int] = {}  # 사이트별 상세 조회 시도
+        self.fails: dict[str, int] = {}  # 사이트별 실패 (예외 · 빈 응답)
         self.looked_up = False  # 마지막 judge 가 상세 페이지를 읽었는지
         self.route_tries = 0
         self.route_found = 0
@@ -180,10 +186,16 @@ class _Commute:
         if self.lookups:
             self.sleep(self.cfg.delay_sec)
         self.lookups += 1
+        self.tries[job.source] = self.tries.get(job.source, 0) + 1
         try:
             detail = fetch(job.job_id, self.today)
         except Exception:
+            self.fails[job.source] = self.fails.get(job.source, 0) + 1
             return classify(job, common, track)
+        if detail.address or detail.body or detail.coords:
+            self.read += 1
+        else:  # 빈 응답: 사이트 구조가 바뀌었을 수 있다
+            self.fails[job.source] = self.fails.get(job.source, 0) + 1
         if detail.deadline and not job.deadline:
             job.deadline = detail.deadline
         if detail.education and not job.education:
@@ -294,5 +306,9 @@ def build(
         commute_failed=commute.failed or (commute.route_tries >= 3 and commute.route_found == 0),
         excluded_after_lookup=excluded_after_lookup,
         deferred=commute.deferred,
+        detail_read=commute.read,
+        detail_failed=sum(commute.fails.values()),
+        detail_failed_sites=[s for s, n in commute.tries.items()
+                             if n >= 3 and commute.fails.get(s, 0) * 2 >= n],
     )
     return digest, kept

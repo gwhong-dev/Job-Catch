@@ -56,6 +56,10 @@ class HtmlTest(unittest.TestCase):
         self.assertIn("⚠ 잡코리아 수집 실패", h)
         self.assertLess(h.index("⚠ 잡코리아 수집 실패"), h.index("마감 임박"))
 
+    def test_detail_failed_warning(self):
+        html = render_html(digest(detail_failed_sites=["jobkorea"]))
+        self.assertIn("⚠ 잡코리아 상세 페이지 읽기 실패", html)
+
     def test_commute_warning(self):
         self.assertIn("⚠ 통근 시간 계산 실패", render_html(digest(commute_failed=True)))
 
