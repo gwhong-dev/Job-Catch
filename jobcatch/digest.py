@@ -159,6 +159,18 @@ class _Commute:
             return False
         return prov not in self.provinces
 
+    def minutes_to(self, address: str) -> int | None:
+        """다시 알림 카드용 통근 시간 (기록에 저장하지 않으므로 그때 다시 계산)."""
+        if not self.on or not address:
+            return None
+        try:
+            dst = self.kakao.geocode(address)
+            return self.kakao.transit_minutes(self.home, dst) if dst else None
+        except KakaoUnavailable:
+            self.home = None
+            self.failed = True
+            return None
+
     def _out_of_budget(self) -> bool:
         if self.lookups >= self.cfg.common.max_detail_lookups:
             return True
@@ -276,7 +288,9 @@ def build(
             closing_keys.add(j.key)
     for key, e in entries.items():
         if not e.excluded and e.deadline and today <= e.deadline <= soon:
-            closing.append(ClosingItem(e.title, e.company, e.url, e.source, e.track, e.deadline))
+            closing.append(ClosingItem(e.title, e.company, e.url, e.source, e.track, e.deadline,
+                                       list(e.flags), commute.minutes_to(e.address), e.location,
+                                       e.address, e.summary, list(e.tags), e.required))
     closing.sort(key=lambda c: (c.deadline, c.title))
 
     new_by_track: dict[str, list[Job]] = {t.name: [] for t in cfg.tracks}

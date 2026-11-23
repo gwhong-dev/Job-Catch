@@ -225,6 +225,23 @@ class CommuteTest(unittest.TestCase):
         self.assertEqual(details.calls, ["1"])
         self.assertEqual(d.deferred, 1)
 
+    def test_reminder_card_filled_and_commute_recomputed(self):
+        e = Entry("t", "c", "u", "saramin", "설계", TODAY + timedelta(days=3), TODAY - timedelta(days=5),
+                  address="서울 중구 세종대로 110", location="서울 중구", summary="지그 설계",
+                  required="Creo 3년", tags=["Creo"], flags=["학력 확인"])
+        kakao = FakeKakao({(127.0, 37.0): 45})
+        d, _ = build(collected(), self.cfg(), {"saramin:1": e}, TODAY, details={}, kakao=kakao, sleep=NO_SLEEP)
+        c = d.closing[0]
+        self.assertEqual((c.address, c.location, c.summary, c.required, c.tags, c.flags, c.commute_min),
+                         ("서울 중구 세종대로 110", "서울 중구", "지그 설계", "Creo 3년", ["Creo"], ["학력 확인"], 45))
+
+    def test_reminder_without_address_has_no_commute(self):
+        e = Entry("t", "c", "u", "saramin", "설계", TODAY + timedelta(days=3), TODAY - timedelta(days=5),
+                  location="서울 중구")
+        d, _ = build(collected(), self.cfg(), {"saramin:1": e}, TODAY, details={},
+                     kakao=FakeKakao({(127.0, 37.0): 45}), sleep=NO_SLEEP)
+        self.assertIsNone(d.closing[0].commute_min)
+
     def test_detail_failures_warned(self):
         def boom(job_id, today):
             raise RuntimeError("403")
