@@ -62,6 +62,14 @@ class JobkoreaFetchDetailTest(unittest.TestCase):
         self.assertEqual(len(router.urls), 2)
         self.assertEqual(d.education, "초대졸이상")
         self.assertIn("담당업무", d.body)
+        self.assertEqual(d.images, [])
+
+    def test_reads_body_images(self):
+        router = Router({"GI_Read_Comt_Ifrm": page("jobkorea_body_images.html"),
+                         "GI_Read/": page("jobkorea_detail.html")})
+        with mock.patch.object(jobkorea.requests, "get", router):
+            d = jobkorea.fetch_detail("1", TODAY, delay_sec=0)
+        self.assertEqual(len(d.images), 3)
 
     def test_body_failure_keeps_page_values(self):
         router = Router({"GI_Read/": page("jobkorea_detail.html")})

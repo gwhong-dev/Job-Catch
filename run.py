@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Callable, Mapping
 
 from jobcatch import history, jobkorea, mail, saramin
+from jobcatch.ai import Gemini
 from jobcatch.commute import Kakao
 from jobcatch.config import ConfigError, load_config
 from jobcatch.digest import DetailFetcher, Fetcher, build, collect
@@ -36,6 +37,7 @@ def main(
     today: date | None = None,
     details: dict[str, DetailFetcher] | None = None,
     sleep: Callable[[float], None] = time.sleep,
+    ai_factory: Callable[[str, str], object] = Gemini,
 ) -> int:
     dry_run = "--dry-run" in argv
     today = today or datetime.now(KST).date()
@@ -52,9 +54,11 @@ def main(
 
     key = env.get("KAKAO_REST_KEY", "").strip()
     kakao = Kakao(key) if key else None
+    ai_key = env.get("GEMINI_API_KEY", "").strip()
+    ai = ai_factory(ai_key, cfg.ai_model) if ai_key else None
     digest, new_jobs = build(
         collected, cfg, entries, today,
-        details=details if details is not None else DETAILS, kakao=kakao, sleep=sleep,
+        details=details if details is not None else DETAILS, kakao=kakao, sleep=sleep, ai=ai,
     )
 
     counts = ", ".join(f"{mail.SITE_NAMES.get(s, s)} {n}건" for s, n in collected.counts.items())
@@ -71,6 +75,18 @@ def main(
           f" · 내일 다시 {digest.deferred}")
     for site in digest.detail_failed_sites:
         print(f"경고: {mail.SITE_NAMES.get(site, site)} 상세 페이지 읽기 실패", file=sys.stderr)
+    # AI 요약도 건수 · HTTP 상태만 (본문 · 응답 · 적합도 기준 · 키는 찍지 않음)
+    a = digest.ai
+    if a is None:
+        print("AI 요약 꺼짐")
+    else:
+        print(f"AI 요약 {a.done}건 / 대상 {a.targets}건 · 실패 {a.failed} · 건너뜀 {a.skipped}"
+              f" · 빠진 이미지 {a.dropped_images}"
+              f" · 적합도 상 {a.fit['상']} 중 {a.fit['중']} 하 {a.fit['하']}")
+        if a.stopped is not None:
+            print(f"경고: AI 요약 중단 (HTTP {a.stopped})", file=sys.stderr)
+        elif a.all_failed:
+            print("경고: AI 요약 전부 실패", file=sys.stderr)
 
     subject = mail.subject(digest)
     html = mail.render_html(digest)

@@ -15,7 +15,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from .models import Detail, Job
-from .summary import page_text
+from .summary import image_urls, page_text
 from .saramin import USER_AGENT
 
 BASE = "https://www.jobkorea.co.kr"
@@ -167,9 +167,20 @@ def fetch_detail(job_id: str, today: date, delay_sec: float = 2.0) -> Detail:
         )
         if body.status_code == 200:
             detail.body = parse_body(body.text)
+            detail.images = parse_images(body.text)
     except requests.RequestException:
         pass
     return detail
+
+
+# 2026-11-23 실제 공고 확인: 본문 이미지는 imgraph.jobkorea.co.kr · file2.jobkorea.co.kr 등에 있고,
+# frontend-app-cdn.jobkorea.co.kr 는 화면 틀(스크립트 · 스타일 · 아이콘)이라 뺀다
+SKIP_IMAGE_HOSTS = ("frontend-app-cdn.jobkorea.co.kr",)
+
+
+def parse_images(html: str) -> list[str]:
+    """상세요강 본문의 공고 이미지 주소."""
+    return image_urls(html, SKIP_IMAGE_HOSTS)
 
 
 def parse_body(html: str) -> str:

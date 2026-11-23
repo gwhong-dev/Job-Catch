@@ -102,6 +102,31 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(cfg.common.commute_soft_min, 75)
         self.assertEqual(cfg.common.max_detail_lookups, 150)
         self.assertEqual(cfg.tracks[0].include_any, [])
+        self.assertEqual(cfg.ai_model, "gemini-3.5-flash-lite")
+        self.assertEqual(cfg.tracks[0].fit, "")
+
+    def test_track_fit_and_ai_model(self):
+        text = '[ai]\nmodel = "m"\n' + MIN.format(name="A") + 'fit = "기준"\n'
+        cfg = load_config({"JOBCATCH_CONFIG": text}, self.path)
+        self.assertEqual(cfg.ai_model, "m")
+        self.assertEqual(cfg.tracks[0].fit, "기준")
+
+    def test_fit_must_be_text(self):
+        text = MIN.format(name="비밀갈래") + "fit = 3\n"
+        with self.assertRaises(ConfigError) as cm:
+            load_config({"JOBCATCH_CONFIG": text}, self.path)
+        self.assertIn("track #1", str(cm.exception))
+        self.assertNotIn("비밀갈래", str(cm.exception))
+
+    def test_ai_model_must_be_text(self):
+        for bad in ('[ai]\nmodel = 3\n', '[ai]\nmodel = ""\n', 'ai = 1\n'):
+            with self.subTest(bad=bad):
+                with self.assertRaises(ConfigError):
+                    load_config({"JOBCATCH_CONFIG": bad + MIN.format(name="A")}, self.path)
+
+    def test_example_config_has_fit(self):
+        cfg = load_config({}, ROOT / "config.example.toml")
+        self.assertTrue(all(t.fit for t in cfg.tracks))
 
 
 if __name__ == "__main__":

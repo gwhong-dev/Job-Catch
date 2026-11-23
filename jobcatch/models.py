@@ -31,6 +31,11 @@ class Job:
     required: str = ""  # 필수조건 (자격요건 구역)
     tags: list[str] = field(default_factory=list)
     group: str = ""  # 갈래 안 세부 묶음
+    fit: str = ""  # AI 적합도: 상 · 중 · 하 (모르면 빈 값)
+    fit_reason: str = ""
+    # 메모리 전용 (보낸 기록에 저장하지 않음): AI 요약에 보낼 본문 글자와 공고 이미지 주소
+    body: str = ""
+    images: list[str] = field(default_factory=list)
 
     @property
     def key(self) -> str:
@@ -46,3 +51,4 @@ class Detail:
     education: str = ""
     coords: tuple[float, float] | None = None  # (경도 x, 위도 y). 페이지에 있으면 주소 변환을 건너뛴다
     body: str = ""  # 상세요강 본문 글자 (요약용)
+    images: list[str] = field(default_factory=list)  # 본문의 공고 이미지 주소 (절대 https)

@@ -174,18 +174,57 @@ def _items(segment: str) -> list[str]:
     return items
 
 
-def _join(items: list[str]) -> str:
-    """항목 경계에서 MAX_DUTY 안으로 자른다. 하나라도 잘리면 끝에 …"""
+_PX_RE = re.compile(r"width\s*:\s*(\d+)\s*px", re.I)
+MIN_IMAGE_PX = 50  # 이보다 작다고 적힌 그림은 점 · 아이콘으로 보고 뺀다
+
+
+def _tiny(img) -> bool:
+    sizes = [img.get("width", ""), img.get("height", "")]
+    m = _PX_RE.search(img.get("style", "") or "")
+    if m:
+        sizes.append(m.group(1))
+    return any(str(v).strip().isdigit() and int(str(v).strip()) < MIN_IMAGE_PX for v in sizes)
+
+
+def image_urls(html: str, skip_hosts: tuple[str, ...]) -> list[str]:
+    """본문 HTML 의 <img src> 를 절대 https 주소로 (순서 유지, 중복 제외).
+
+    꾸밈 이미지 호스트(skip_hosts 와 그 하위 도메인)와 아주 작은 그림은 뺀다.
+    공고 이미지는 사이트 서버 말고도 회사 S3 · 다른 채용 사이트 파일 서버 등 여러 곳에 올라가서
+    허용 목록이 아니라 제외 목록으로 거른다.
+    """
+    out: list[str] = []
+    for img in BeautifulSoup(html, "html.parser").find_all("img"):
+        src = (img.get("src") or "").strip()
+        low = src.lower()
+        if low.startswith("//"):
+            src = "https:" + src
+        elif low.startswith("http://"):
+            src = "https://" + src[len("http://"):]
+        elif low.startswith("https://"):
+            src = "https://" + src[len("https://"):]
+        else:
+            continue  # 상대 주소 · data: 등
+        host = src[len("https://"):].split("/", 1)[0].split("?", 1)[0].lower()
+        if not host or any(host == h or host.endswith("." + h) for h in skip_hosts) or _tiny(img):
+            continue
+        if src not in out:
+            out.append(src)
+    return out
+
+
+def _join(items: list[str], limit: int = MAX_DUTY) -> str:
+    """항목 경계에서 limit 안으로 자른다. 하나라도 잘리면 끝에 …"""
     if not items or len(_norm(" ".join(items))) < MIN_MEANING:
         return ""
     joined = " / ".join(items)
-    if len(joined) <= MAX_DUTY:
+    if len(joined) <= limit:
         return joined
-    if len(items[0]) > MAX_DUTY - 2:
-        return items[0][: MAX_DUTY - 1].rstrip(" /") + "…"
+    if len(items[0]) > limit - 2:
+        return items[0][: limit - 1].rstrip(" /") + "…"
     out = items[0]
     for item in items[1:]:
-        if len(out) + 3 + len(item) > MAX_DUTY - 2:
+        if len(out) + 3 + len(item) > limit - 2:
             break
         out += " / " + item
     return out + " …"

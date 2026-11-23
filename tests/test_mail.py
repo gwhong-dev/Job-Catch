@@ -1,6 +1,7 @@
 import unittest
 from datetime import date, timedelta
 
+from jobcatch.ai import AiStats
 from jobcatch.digest import ClosingItem, Digest
 from jobcatch.mail import MailError, render_html, send, subject
 from jobcatch.models import Job
@@ -35,6 +36,63 @@ class SubjectTest(unittest.TestCase):
         self.assertEqual(subject(digest(new_total=12, closing=closing(3))),
                          "[Job-Catch] 11/23(월) 새 공고 12건 · 마감임박 3건")
         self.assertEqual(subject(digest()), "[Job-Catch] 11/23(월) 새 공고 없음")
+
+
+STOP_WARN = "⚠ AI 요약 중단 — 일부 카드는 규칙 요약입니다."
+FAIL_WARN = "⚠ AI 요약 실패 — 오늘 카드는 모두 규칙 요약입니다."
+
+
+def with_job(j: Job, **kw) -> Digest:
+    return digest(new_by_track={"설계": [j]}, new_total=1, **kw)
+
+
+class FitTest(unittest.TestCase):
+    def test_fit_line_between_place_and_summary(self):
+        html = render_html(with_job(job("1", fit="상", fit_reason="직접 설계", summary="요약")))
+        self.assertIn("🎯", html)
+        self.assertIn("직접 설계", html)
+        self.assertLess(html.index("📍"), html.index("🎯"))
+        self.assertLess(html.index("🎯"), html.index("📝"))
+
+    def test_fit_without_reason(self):
+        html = render_html(with_job(job("1", fit="중")))
+        self.assertIn("🎯", html)
+        self.assertRegex(html, r"🎯 <b[^>]*>중</b></div>")
+
+    def test_low_fit_still_shown(self):
+        html = render_html(with_job(job("1", fit="하", fit_reason="가공 일")))
+        self.assertIn("공고1(예시)", html)
+        self.assertIn("가공 일", html)
+
+    def test_no_fit_no_line(self):
+        self.assertNotIn("🎯", render_html(with_job(job("1", fit=""))))
+
+    def test_fit_line_escaped(self):
+        html = render_html(with_job(job("1", fit="하", fit_reason="<script>x</script>")))
+        self.assertNotIn("<script>x", html)
+        self.assertIn("&lt;script&gt;x", html)
+
+    def test_closing_card_fit(self):
+        c = ClosingItem("공고(예시)", "회사", "u", "saramin", "설계", TODAY + timedelta(days=2),
+                        fit="상", fit_reason="옛 이유")
+        html = render_html(digest(closing=[c]))
+        self.assertIn("옛 이유", html)
+
+    def test_ai_stopped_warning(self):
+        self.assertIn(STOP_WARN, render_html(digest(ai=AiStats(stopped=429))))
+
+    def test_no_warning_when_ai_off_or_ok(self):
+        self.assertNotIn(STOP_WARN, render_html(digest()))
+        self.assertNotIn(STOP_WARN, render_html(digest(ai=AiStats(targets=3, done=2, failed=1))))
+        self.assertNotIn(FAIL_WARN, render_html(digest(ai=AiStats(targets=3, done=2, failed=1))))
+        self.assertNotIn(FAIL_WARN, render_html(digest(ai=AiStats())))
+
+    def test_all_failed_warning(self):
+        # 모델이 내려가거나 서버 오류가 계속되면 조용히 규칙 요약만 실리지 않게 경고
+        self.assertIn(FAIL_WARN, render_html(digest(ai=AiStats(targets=3, failed=3))))
+        h = render_html(digest(ai=AiStats(targets=3, skipped=3, stopped=429)))
+        self.assertIn(STOP_WARN, h)
+        self.assertNotIn(FAIL_WARN, h)  # 중단 경고 하나로 충분
 
 
 class HtmlTest(unittest.TestCase):

@@ -1,7 +1,8 @@
 """이미 보낸 공고 기록 (data/seen.json).
 
 마감 임박 공고를 다시 알리려고 공고 정보(제목 · 회사 · 링크 · 마감일)와
-카드 내용(근무지 · 요약 · 필수조건 · 태그 · 확인 표시)도 함께 둔다.
+카드 내용(근무지 · 요약 · 필수조건 · 태그 · 확인 표시 · AI 적합도)도 함께 둔다.
+AI 에 보낸 본문 글자 · 이미지 주소는 넣지 않는다.
 개인 정보나 통근 시간은 넣지 않는다 (통근은 다시 알릴 때 주소로 다시 계산).
 """
 
@@ -32,6 +33,8 @@ class Entry:
     required: str = ""
     tags: list[str] = field(default_factory=list)
     flags: list[str] = field(default_factory=list)
+    fit: str = ""  # AI 적합도 (상 · 중 · 하)
+    fit_reason: str = ""
 
 
 def _str_list(value) -> list[str]:
@@ -61,6 +64,8 @@ def _from_json(d: dict) -> Entry:
         required=str(d.get("required", "")),
         tags=_str_list(d.get("tags")),
         flags=_str_list(d.get("flags")),
+        fit=str(d.get("fit", "")),
+        fit_reason=str(d.get("fit_reason", "")),
     )
 
 
@@ -99,7 +104,7 @@ def record(entries: dict[str, Entry], jobs: list[Job], today: date) -> None:
             title=j.title, company=j.company, url=j.url, source=j.source,
             track=j.track, deadline=j.deadline, first_sent=today,
             location=j.location, address=j.address, summary=j.summary, required=j.required,
-            tags=list(j.tags), flags=list(j.flags),
+            tags=list(j.tags), flags=list(j.flags), fit=j.fit, fit_reason=j.fit_reason,
         )
 
 

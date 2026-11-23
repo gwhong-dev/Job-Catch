@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping
 
+from .ai import DEFAULT_MODEL
+
 SITES = {"saramin", "jobkorea"}
 CAREERS = {"신입", "경력"}
 EDU_ORDER = ["학력무관", "고졸", "초대졸", "대졸", "석사", "박사"]
@@ -44,6 +46,7 @@ class Track:
     career: list[str]
     include_any: list[str] = field(default_factory=list)
     groups: dict[str, list[str]] = field(default_factory=dict)  # 세부 묶음: 이름 → 제목에서 찾을 단어
+    fit: str = ""  # AI 적합도 기준 한 단락 (비우면 적합도를 묻지 않음)
 
 
 @dataclass
@@ -53,6 +56,7 @@ class Config:
     max_pages: int = 2
     delay_sec: float = 2.0
     max_cards_per_track: int = 30
+    ai_model: str = DEFAULT_MODEL
 
 
 def _read_text(env: Mapping[str, str], path: Path) -> str:
@@ -94,6 +98,9 @@ def load_config(env: Mapping[str, str], path: Path) -> Config:
         raise ConfigError(f"설정 TOML 형식 오류 (줄 {m.group(1) if m else '?'})") from None
 
     run = _table(data, "run")
+    ai_model = _table(data, "ai").get("model", DEFAULT_MODEL)
+    if not isinstance(ai_model, str) or not ai_model.strip():
+        raise ConfigError("ai.model 은 비어 있지 않은 글자여야 합니다")
     c = _table(data, "common")
     education = c.get("education", "")
     if education and education not in EDU_ORDER:
@@ -131,6 +138,9 @@ def load_config(env: Mapping[str, str], path: Path) -> Config:
             raise ConfigError(f"{where}: keywords 가 비어 있습니다")
         if not career or not set(career) <= CAREERS:
             raise ConfigError(f"{where}: career 는 신입 / 경력 중에서 고릅니다")
+        fit = t.get("fit", "")
+        if not isinstance(fit, str):
+            raise ConfigError(f"{where}: fit 은 글자여야 합니다")
         tracks.append(
             Track(
                 name=name,
@@ -139,6 +149,7 @@ def load_config(env: Mapping[str, str], path: Path) -> Config:
                 career=career,
                 include_any=_str_list(t.get("include_any", []), f"{where} include_any"),
                 groups=_groups(t.get("groups", {}), f"{where} groups"),
+                fit=fit.strip(),
             )
         )
     if not tracks:
@@ -151,6 +162,7 @@ def load_config(env: Mapping[str, str], path: Path) -> Config:
             max_pages=int(run.get("max_pages", 2)),
             delay_sec=float(run.get("delay_sec", 2.0)),
             max_cards_per_track=int(run.get("max_cards_per_track", 30)),
+            ai_model=ai_model.strip(),
         )
     except (TypeError, ValueError):
         raise ConfigError("run: 숫자 칸에 숫자가 아닌 값이 있습니다") from None
