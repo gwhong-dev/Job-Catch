@@ -27,6 +27,8 @@ MAX_REASON = 40
 MIN_INTERVAL_SEC = 4  # 무료 등급 분당 한도(약 15회) 안으로
 DEFAULT_RETRY_SEC = 30
 MAX_RETRY_SEC = 60  # 이보다 오래 기다리라면 하루 한도로 보고 멈춘다
+MIN_CALL_SEC = 5  # 남은 시간이 이보다 적으면 요청을 보내지 않는다
+STOP_STATUSES = (401, 403, 404)  # 키 문제 · 모델이 내려감: 남은 카드도 똑같이 실패하므로 멈춘다
 FITS = ("상", "중", "하")
 
 MAX_IMAGES = 6
@@ -117,22 +119,31 @@ class Gemini:
         self.clock = clock
         self._last: float | None = None  # 마지막 요청 시각
 
-    def _send(self, body: dict):
+    def _send(self, body: dict, end: float | None):
         if self._last is not None:
             wait = MIN_INTERVAL_SEC - (self.clock() - self._last)
             if wait > 0:
                 self.sleep(wait)
         self._last = self.clock()
+        timeout = TIMEOUT_SEC
+        if end is not None:
+            remaining = end - self.clock()
+            if remaining < MIN_CALL_SEC:
+                raise AiError("AI 단계 시간 한도")
+            timeout = min(TIMEOUT_SEC, remaining)
         try:
             return self.post(
                 ENDPOINT.format(model=self.model),
                 headers={"x-goog-api-key": self.key, "Content-Type": "application/json"},
-                json=body, timeout=TIMEOUT_SEC,
+                json=body, timeout=timeout,
             )
         except requests.RequestException:
             raise AiError("Gemini 연결 실패") from None
 
-    def analyze(self, body: str, images: list[tuple[str, bytes]], fit_rule: str) -> AiResult:
+    def analyze(self, body: str, images: list[tuple[str, bytes]], fit_rule: str,
+                time_left: float | None = None) -> AiResult:
+        """time_left: AI 단계에 남은 초. 요청 시간 한도 · 재시도 대기를 이 안으로 줄인다."""
+        end = None if time_left is None else self.clock() + time_left
         fit_rule = fit_rule.strip()
         prompt = PROMPT + (FIT_PROMPT.format(fit_rule=fit_rule) if fit_rule else "")
         prompt += "\n본문 글자:\n" + body[:BODY_CHARS]
@@ -148,17 +159,19 @@ class Gemini:
             },
         }
 
-        resp = self._send(request)
+        resp = self._send(request, end)
         if resp.status_code == 429:
             delay = _retry_delay(resp)
             delay = DEFAULT_RETRY_SEC if delay is None else delay
             if delay > MAX_RETRY_SEC:
                 raise AiStopped(429)
+            if end is not None and delay + MIN_CALL_SEC > end - self.clock():
+                raise AiError("AI 단계 시간 한도")
             self.sleep(delay)
-            resp = self._send(request)
+            resp = self._send(request, end)
             if resp.status_code == 429:
                 raise AiStopped(429)
-        if resp.status_code in (401, 403) or (resp.status_code == 400 and _key_invalid(resp)):
+        if resp.status_code in STOP_STATUSES or (resp.status_code == 400 and _key_invalid(resp)):
             raise AiStopped(resp.status_code)
         if resp.status_code != 200:
             raise AiError(f"Gemini HTTP {resp.status_code}")
@@ -222,7 +235,12 @@ class AiStats:
     skipped: int = 0
     dropped_images: int = 0
     fit: dict[str, int] = field(default_factory=lambda: {f: 0 for f in FITS})
-    stopped: int | None = None  # 중단시킨 HTTP 상태 (429 · 401 · 403 · 400)
+    stopped: int | None = None  # 중단시킨 HTTP 상태 (429 · 401 · 403 · 404 · 400)
+
+    @property
+    def all_failed(self) -> bool:
+        """부른 공고가 모두 실패 (모델이 내려감 · 서버 오류가 계속됨 등). 중단과는 따로 본다."""
+        return self.stopped is None and self.failed > 0 and self.done == 0
 
 
 def enrich_jobs(jobs: list[Job], fit_rules: dict[str, str], ai, download=download_images,
@@ -238,15 +256,22 @@ def enrich_jobs(jobs: list[Job], fit_rules: dict[str, str], ai, download=downloa
         elif now - started >= AI_TIME_LIMIT_SEC:
             stats.skipped += len(targets) - i
             break
-        images, dropped = download(job.images) if job.images else ([], 0)
-        stats.dropped_images += dropped
         try:
-            r = ai.analyze(job.body, images, fit_rules.get(job.track, ""))
+            images, dropped = download(job.images) if job.images else ([], 0)
+        except Exception:  # 내려받기가 깨져도 본문 글자로는 부른다
+            images, dropped = [], len(job.images)
+        stats.dropped_images += dropped
+        time_left = AI_TIME_LIMIT_SEC - (clock() - started)
+        if time_left <= 0:
+            stats.skipped += len(targets) - i
+            break
+        try:
+            r = ai.analyze(job.body, images, fit_rules.get(job.track, ""), time_left=time_left)
         except AiStopped as stop:
             stats.stopped = stop.status
             stats.skipped += len(targets) - i
             break
-        except AiError:
+        except Exception:  # AiError 와 예상 못 한 오류 모두: 이 공고만 규칙 요약 (AI 때문에 메일이 안 나가면 안 됨)
             stats.failed += 1
             continue
         if r.duty:

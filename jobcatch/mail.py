@@ -164,6 +164,8 @@ def render_html(d: Digest) -> str:
         parts.append(_warning("⚠ 통근 시간 계산 실패 — 오늘은 지역 목록으로 걸렀습니다."))
     if d.ai is not None and d.ai.stopped is not None:
         parts.append(_warning("⚠ AI 요약 중단 — 일부 카드는 규칙 요약입니다."))
+    elif d.ai is not None and d.ai.all_failed:
+        parts.append(_warning("⚠ AI 요약 실패 — 오늘 카드는 모두 규칙 요약입니다."))
 
     parts.append(_toc(d))
 

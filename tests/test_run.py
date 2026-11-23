@@ -131,7 +131,7 @@ class RunTest(unittest.TestCase):
         made = []
 
         class FakeAi:
-            def analyze(self, body, images, fit_rule):
+            def analyze(self, body, images, fit_rule, time_left=None):
                 return AiResult("업무비밀문구", "필수비밀문구", "상", "이유비밀문구")
 
         def factory(key, model):
@@ -154,12 +154,41 @@ class RunTest(unittest.TestCase):
         from jobcatch.ai import AiStopped
 
         class StoppedAi:
-            def analyze(self, body, images, fit_rule):
+            def analyze(self, body, images, fit_rule, time_left=None):
                 raise AiStopped(429)
 
         env = dict(self.env, GEMINI_API_KEY="k")
         _, _, err = self.run_ai(lambda key, model: StoppedAi(), env)
         self.assertIn("경고: AI 요약 중단 (HTTP 429)", err)
+
+    def test_ai_all_failed_logged(self):
+        from jobcatch.ai import AiError
+
+        class FailingAi:
+            def analyze(self, body, images, fit_rule, time_left=None):
+                raise AiError("Gemini HTTP 500")
+
+        env = dict(self.env, GEMINI_API_KEY="k")
+        code, _, err = self.run_ai(lambda key, model: FailingAi(), env)
+        self.assertEqual(code, 0)
+        self.assertIn("경고: AI 요약 전부 실패", err)
+
+    def test_unexpected_ai_error_still_mails(self):
+        class BrokenAi:
+            def analyze(self, body, images, fit_rule, time_left=None):
+                raise UnicodeEncodeError("latin-1", "키비밀", 0, 1, "bad")
+
+        sender = Sender()
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            code = run.main([], dict(self.env, GEMINI_API_KEY="k"), self.root,
+                            fetchers={"saramin": fake_saramin}, sender=sender, today=TODAY,
+                            sleep=lambda s: None, ai_factory=lambda key, model: BrokenAi(),
+                            details={"saramin": lambda job_id, today: __import__("jobcatch.models").models.Detail(
+                                address="a", body="본문")})
+        self.assertEqual(code, 0)
+        self.assertEqual(len(sender.subjects), 1)
+        self.assertNotIn("키비밀", out.getvalue() + err.getvalue())
 
     def test_bad_config_exit_2(self):
         code, log = self.main([], env={"JOBCATCH_CONFIG": "["})

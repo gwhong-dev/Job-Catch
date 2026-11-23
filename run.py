@@ -85,6 +85,8 @@ def main(
               f" · 적합도 상 {a.fit['상']} 중 {a.fit['중']} 하 {a.fit['하']}")
         if a.stopped is not None:
             print(f"경고: AI 요약 중단 (HTTP {a.stopped})", file=sys.stderr)
+        elif a.all_failed:
+            print("경고: AI 요약 전부 실패", file=sys.stderr)
 
     subject = mail.subject(digest)
     html = mail.render_html(digest)

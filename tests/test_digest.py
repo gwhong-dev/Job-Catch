@@ -416,7 +416,7 @@ class RecordingAi:
     def __init__(self):
         self.bodies: list[str] = []
 
-    def analyze(self, body, images, fit_rule):
+    def analyze(self, body, images, fit_rule, time_left=None):
         self.bodies.append(body)
         return AiResult(f"AI {body}", "AI 필수", "상", "이유")
 

@@ -192,6 +192,33 @@ class ErrorTest(unittest.TestCase):
             gemini(FakePost(rate_limited("1s"), rate_limited("1s"))).analyze("본문", [], "기준")
         self.assertEqual(cm.exception.status, 429)
 
+    def test_404_model_gone_raises_stopped(self):
+        with self.assertRaises(AiStopped) as cm:
+            gemini(FakePost(Resp(404, {"error": {"status": "NOT_FOUND"}}))).analyze("본문", [], "")
+        self.assertEqual(cm.exception.status, 404)
+
+    def test_timeout_capped_by_time_left(self):
+        post = FakePost(ok(GOOD))
+        gemini(post, clock=Clock(0, 0, 0)).analyze("본문", [], "", time_left=30)
+        self.assertLessEqual(post.calls[0]["timeout"], 30)
+        post = FakePost(ok(GOOD))
+        gemini(post).analyze("본문", [], "")
+        self.assertEqual(post.calls[0]["timeout"], 120)
+
+    def test_no_time_left_no_call(self):
+        post = FakePost(ok(GOOD))
+        with self.assertRaises(AiError):
+            gemini(post).analyze("본문", [], "", time_left=2)
+        self.assertEqual(post.calls, [])
+
+    def test_retry_skipped_when_wait_exceeds_time_left(self):
+        sleeps: list[float] = []
+        post = FakePost(rate_limited("30s"), ok(GOOD))
+        with self.assertRaises(AiError):
+            gemini(post, sleeps).analyze("본문", [], "", time_left=20)
+        self.assertEqual(len(post.calls), 1)
+        self.assertNotIn(30, sleeps)
+
     def test_401_403_raise_stopped(self):
         for status in (401, 403):
             with self.subTest(status=status):
@@ -314,9 +341,11 @@ class FakeGemini:
     def __init__(self, *results):
         self.results = list(results)
         self.calls: list[tuple[str, list, str]] = []
+        self.time_left: list[float | None] = []
 
-    def analyze(self, body, images, fit_rule):
+    def analyze(self, body, images, fit_rule, time_left=None):
         self.calls.append((body, images, fit_rule))
+        self.time_left.append(time_left)
         r = self.results.pop(0)
         if isinstance(r, Exception):
             raise r
@@ -378,9 +407,34 @@ class EnrichTest(unittest.TestCase):
     def test_time_limit_skips_rest(self):
         ai = FakeGemini(R, R, R)
         stats = enrich_jobs([make_job("1"), make_job("2"), make_job("3")], {}, ai,
-                            download=no_download, clock=Clock(0, 481))
+                            download=no_download, clock=Clock(0, 1, 481))
         self.assertEqual((stats.done, stats.skipped), (1, 2))
         self.assertIsNone(stats.stopped)
+
+    def test_time_left_passed_to_analyze(self):
+        ai = FakeGemini(R)
+        enrich_jobs([make_job("1")], {}, ai, download=no_download, clock=Clock(0, 30))
+        self.assertEqual(ai.time_left, [450])
+
+    def test_time_checked_after_download(self):
+        # 이미지 내려받기에 시간을 다 쓰면 AI 를 부르지 않고 남은 공고와 함께 건너뜀
+        ai = FakeGemini(R, R)
+        stats = enrich_jobs([make_job("1", images=["a"]), make_job("2")], {}, ai,
+                            download=no_download, clock=Clock(0, 481))
+        self.assertEqual(ai.calls, [])
+        self.assertEqual((stats.done, stats.skipped), (0, 2))
+
+    def test_unexpected_exception_counts_failed(self):
+        def broken_download(urls):
+            raise ValueError("이상한 응답")
+
+        a, b, c = make_job("1", summary="규칙"), make_job("2", images=["x"]), make_job("3")
+        ai = FakeGemini(KeyError("x"), R, UnicodeEncodeError("latin-1", "키", 0, 1, "bad"))
+        stats = enrich_jobs([a, b, c], {}, ai, download=broken_download)
+        self.assertEqual((stats.failed, stats.done), (2, 1))
+        self.assertEqual(a.summary, "규칙")
+        self.assertEqual(stats.dropped_images, 1)  # 내려받기가 깨지면 그 공고 이미지 전부 뺀 것으로
+        self.assertEqual(ai.calls[1][1], [])  # 이미지 없이 본문만이라도 보냄
 
     def test_dropped_images_summed(self):
         def download(urls):
