@@ -189,18 +189,18 @@ def image_urls(html: str, hosts: set[str]) -> list[str]:
     return out
 
 
-def _join(items: list[str]) -> str:
-    """항목 경계에서 MAX_DUTY 안으로 자른다. 하나라도 잘리면 끝에 …"""
+def _join(items: list[str], limit: int = MAX_DUTY) -> str:
+    """항목 경계에서 limit 안으로 자른다. 하나라도 잘리면 끝에 …"""
     if not items or len(_norm(" ".join(items))) < MIN_MEANING:
         return ""
     joined = " / ".join(items)
-    if len(joined) <= MAX_DUTY:
+    if len(joined) <= limit:
         return joined
-    if len(items[0]) > MAX_DUTY - 2:
-        return items[0][: MAX_DUTY - 1].rstrip(" /") + "…"
+    if len(items[0]) > limit - 2:
+        return items[0][: limit - 1].rstrip(" /") + "…"
     out = items[0]
     for item in items[1:]:
-        if len(out) + 3 + len(item) > MAX_DUTY - 2:
+        if len(out) + 3 + len(item) > limit - 2:
             break
         out += " / " + item
     return out + " …"
