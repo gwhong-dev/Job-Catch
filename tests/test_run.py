@@ -107,6 +107,60 @@ class RunTest(unittest.TestCase):
         self.assertNotIn("지그 설계", log)
         self.assertNotIn("비밀제목", log)
 
+    def run_ai(self, ai_factory, env, body="주요업무\n- 지그 설계(예시)"):
+        from jobcatch.models import Detail
+
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            code = run.main(["--dry-run"], env, self.root, fetchers={"saramin": fake_saramin},
+                            sender=Sender(), today=TODAY, sleep=lambda s: None,
+                            details={"saramin": lambda job_id, today: Detail(address="a", body=body)},
+                            ai_factory=ai_factory)
+        return code, out.getvalue(), err.getvalue()
+
+    def test_ai_off_without_key(self):
+        calls = []
+        code, out, _ = self.run_ai(lambda key, model: calls.append(key), self.env)
+        self.assertEqual(code, 0)
+        self.assertIn("AI 요약 꺼짐", out)
+        self.assertEqual(calls, [])
+
+    def test_ai_counts_logged_without_text(self):
+        from jobcatch.ai import AiResult
+
+        made = []
+
+        class FakeAi:
+            def analyze(self, body, images, fit_rule):
+                return AiResult("업무비밀문구", "필수비밀문구", "상", "이유비밀문구")
+
+        def factory(key, model):
+            made.append((key, model))
+            return FakeAi()
+
+        env = {"JOBCATCH_CONFIG": CONFIG + 'fit = "기준비밀문구"\n', "GEMINI_API_KEY": "키비밀문구"}
+        code, out, err = self.run_ai(factory, env)
+        log = out + err
+        self.assertEqual(code, 0)
+        self.assertEqual(made, [("키비밀문구", "gemini-3.5-flash-lite")])
+        self.assertIn("AI 요약 1건 / 대상 1건 · 실패 0 · 건너뜀 0 · 빠진 이미지 0 · 적합도 상 1 중 0 하 0", log)
+        for secret in ("업무비밀문구", "필수비밀문구", "이유비밀문구", "키비밀문구", "기준비밀문구", "지그 설계"):
+            self.assertNotIn(secret, log)
+        html = (self.root / "output" / "mail_2026-11-23.html").read_text(encoding="utf-8")
+        self.assertIn("업무비밀문구", html)
+        self.assertIn("🎯", html)
+
+    def test_ai_stop_logs_status(self):
+        from jobcatch.ai import AiStopped
+
+        class StoppedAi:
+            def analyze(self, body, images, fit_rule):
+                raise AiStopped(429)
+
+        env = dict(self.env, GEMINI_API_KEY="k")
+        _, _, err = self.run_ai(lambda key, model: StoppedAi(), env)
+        self.assertIn("경고: AI 요약 중단 (HTTP 429)", err)
+
     def test_bad_config_exit_2(self):
         code, log = self.main([], env={"JOBCATCH_CONFIG": "["})
         self.assertEqual(code, 2)

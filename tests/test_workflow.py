@@ -11,6 +11,10 @@ class WorkflowTest(unittest.TestCase):
         self.assertIn("JOBCATCH_CONFIG: ${{ secrets.JOBCATCH_CONFIG }}", text)
         self.assertNotIn("vars.", text)
 
+    def test_gemini_key_passed_as_secret(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}", text)
+
 
 if __name__ == "__main__":
     unittest.main()
