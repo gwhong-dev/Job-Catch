@@ -1,0 +1,11 @@
+{
+  "env": {
+    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "200000"
+  },
+  "enabledPlugins": {
+    "adhd-study-coach@anthropic-plugin-directory": false,
+    "pdf-viewer@anthropic-plugin-directory": false,
+    "code-simplifier@anthropic-plugin-directory": false,
+    "learn-with-coursera@knowledge-work-plugins": false
+  }
+}
