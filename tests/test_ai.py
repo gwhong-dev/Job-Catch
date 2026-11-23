@@ -294,3 +294,101 @@ class DownloadTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---- enrich_jobs (카드 선택 뒤 AI 단계) ----
+from jobcatch.ai import AiStats, enrich_jobs  # noqa: E402
+from jobcatch.models import Job  # noqa: E402
+
+
+def make_job(job_id: str, body: str = "본문", images=None, track: str = "설계", **kw) -> Job:
+    j = Job(source="saramin", job_id=job_id, title=f"공고{job_id}(예시)", company="가나(예시)", url="u",
+            deadline_text="", deadline=None, location="경기", career="신입", education="", employment="",
+            salary="", track=track, **kw)
+    j.body = body
+    j.images = list(images or [])
+    return j
+
+
+class FakeGemini:
+    def __init__(self, *results):
+        self.results = list(results)
+        self.calls: list[tuple[str, list, str]] = []
+
+    def analyze(self, body, images, fit_rule):
+        self.calls.append((body, images, fit_rule))
+        r = self.results.pop(0)
+        if isinstance(r, Exception):
+            raise r
+        return r
+
+
+def no_download(urls):
+    return [("image/jpeg", b"x") for _ in urls], 0
+
+
+R = AiResult("AI 요약", "AI 필수", "상", "이유")
+
+
+class EnrichTest(unittest.TestCase):
+    def test_image_only_job_is_target(self):
+        ai = FakeGemini(R)
+        stats = enrich_jobs([make_job("1", body="", images=["https://pds.saramin.co.kr/a.jpg"])],
+                            {"설계": "기준"}, ai, download=no_download)
+        self.assertEqual((stats.targets, stats.done), (1, 1))
+        self.assertEqual(len(ai.calls[0][1]), 1)
+
+    def test_no_body_no_images_not_target(self):
+        ai = FakeGemini()
+        stats = enrich_jobs([make_job("1", body="  ")], {}, ai, download=no_download)
+        self.assertEqual((stats.targets, stats.done), (0, 0))
+        self.assertEqual(ai.calls, [])
+
+    def test_fit_rule_by_track(self):
+        ai = FakeGemini(R, R)
+        enrich_jobs([make_job("1"), make_job("2", track="개발")], {"설계": "설계 기준"}, ai, download=no_download)
+        self.assertEqual([c[2] for c in ai.calls], ["설계 기준", ""])
+
+    def test_ai_result_overrides_rule_only_when_nonempty(self):
+        j = make_job("1", summary="규칙 요약", required="규칙 필수")
+        enrich_jobs([j], {}, FakeGemini(AiResult("AI 요약", "", "", "")), download=no_download)
+        self.assertEqual((j.summary, j.required), ("AI 요약", "규칙 필수"))
+
+    def test_sets_fit_and_counts(self):
+        a, b = make_job("1"), make_job("2")
+        stats = enrich_jobs([a, b], {"설계": "기준"},
+                            FakeGemini(R, AiResult("x 업무", "", "하", "가공 일")), download=no_download)
+        self.assertEqual((a.fit, a.fit_reason, b.fit, b.fit_reason), ("상", "이유", "하", "가공 일"))
+        self.assertEqual(stats.fit, {"상": 1, "중": 0, "하": 1})
+
+    def test_ai_error_keeps_rule_and_continues(self):
+        a, b = make_job("1", summary="규칙"), make_job("2")
+        stats = enrich_jobs([a, b], {}, FakeGemini(AiError("x"), R), download=no_download)
+        self.assertEqual((stats.failed, stats.done), (1, 1))
+        self.assertEqual((a.summary, a.fit), ("규칙", ""))
+        self.assertEqual(b.summary, "AI 요약")
+
+    def test_stop_marks_rest_skipped(self):
+        ai = FakeGemini(R, AiStopped(429))
+        stats = enrich_jobs([make_job("1"), make_job("2"), make_job("3")], {}, ai, download=no_download)
+        self.assertEqual(stats.stopped, 429)
+        self.assertEqual(len(ai.calls), 2)
+        self.assertEqual((stats.done, stats.skipped, stats.targets), (1, 2, 3))
+
+    def test_time_limit_skips_rest(self):
+        ai = FakeGemini(R, R, R)
+        stats = enrich_jobs([make_job("1"), make_job("2"), make_job("3")], {}, ai,
+                            download=no_download, clock=Clock(0, 481))
+        self.assertEqual((stats.done, stats.skipped), (1, 2))
+        self.assertIsNone(stats.stopped)
+
+    def test_dropped_images_summed(self):
+        def download(urls):
+            return [], len(urls)
+
+        stats = enrich_jobs([make_job("1", images=["a", "b"]), make_job("2", images=["c"])], {},
+                            FakeGemini(R, R), download=download)
+        self.assertEqual(stats.dropped_images, 3)
+
+    def test_empty_stats(self):
+        self.assertEqual(AiStats().fit, {"상": 0, "중": 0, "하": 0})

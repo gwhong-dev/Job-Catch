@@ -32,6 +32,8 @@ class Entry:
     required: str = ""
     tags: list[str] = field(default_factory=list)
     flags: list[str] = field(default_factory=list)
+    fit: str = ""  # AI 적합도 (상 · 중 · 하)
+    fit_reason: str = ""
 
 
 def _str_list(value) -> list[str]:

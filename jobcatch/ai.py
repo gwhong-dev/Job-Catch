@@ -10,11 +10,12 @@ import base64
 import json
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable
 
 import requests
 
+from .models import Job
 from .saramin import USER_AGENT
 from .summary import MAX_DUTY, _join
 
@@ -206,3 +207,54 @@ def download_images(urls: list[str], get=requests.get,
         total += len(data)
         got.append((mime, data))
     return got, dropped
+
+
+AI_TIME_LIMIT_SEC = 8 * 60  # AI 단계 전체 시간 한도 (워크플로 30분 = 수집 + 상세 15분 + AI)
+
+
+@dataclass
+class AiStats:
+    """실행 로그용 건수 (공고 내용은 넣지 않는다)."""
+
+    targets: int = 0
+    done: int = 0
+    failed: int = 0
+    skipped: int = 0
+    dropped_images: int = 0
+    fit: dict[str, int] = field(default_factory=lambda: {f: 0 for f in FITS})
+    stopped: int | None = None  # 중단시킨 HTTP 상태 (429 · 401 · 403 · 400)
+
+
+def enrich_jobs(jobs: list[Job], fit_rules: dict[str, str], ai, download=download_images,
+                clock: Callable[[], float] = time.monotonic) -> AiStats:
+    """jobs 순서대로 AI 를 불러 요약 · 필수조건 · 적합도를 채운다. 실패한 공고는 규칙 결과 그대로."""
+    targets = [j for j in jobs if j.body.strip() or j.images]
+    stats = AiStats(targets=len(targets))
+    started: float | None = None
+    for i, job in enumerate(targets):
+        now = clock()
+        if started is None:
+            started = now
+        elif now - started >= AI_TIME_LIMIT_SEC:
+            stats.skipped += len(targets) - i
+            break
+        images, dropped = download(job.images) if job.images else ([], 0)
+        stats.dropped_images += dropped
+        try:
+            r = ai.analyze(job.body, images, fit_rules.get(job.track, ""))
+        except AiStopped as stop:
+            stats.stopped = stop.status
+            stats.skipped += len(targets) - i
+            break
+        except AiError:
+            stats.failed += 1
+            continue
+        if r.duty:
+            job.summary = r.duty
+        if r.required:
+            job.required = r.required
+        job.fit, job.fit_reason = r.fit, r.reason
+        if r.fit in stats.fit:
+            stats.fit[r.fit] += 1
+        stats.done += 1
+    return stats

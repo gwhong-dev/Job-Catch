@@ -1,6 +1,7 @@
 import unittest
 from datetime import date, timedelta
 
+from jobcatch.ai import AiResult
 from jobcatch.commute import KakaoUnavailable
 from jobcatch.config import Common, Config, Track
 from jobcatch.digest import build, collect
@@ -407,6 +408,72 @@ class SummaryGroupTest(unittest.TestCase):
     def test_no_groups_means_empty_group(self):
         d, _ = build(collected(job("1")), config(), {}, TODAY)
         self.assertEqual(d.new_by_track["설계"][0].group, "")
+
+
+class RecordingAi:
+    """본문 글자로 어느 공고를 불렀는지 기록하고, 본문에 따라 정한 결과를 준다."""
+
+    def __init__(self):
+        self.bodies: list[str] = []
+
+    def analyze(self, body, images, fit_rule):
+        self.bodies.append(body)
+        return AiResult(f"AI {body}", "AI 필수", "상", "이유")
+
+
+def body_details(job_id, today):
+    return Detail(address="a", body=f"본문{job_id}")
+
+
+class AiStageTest(unittest.TestCase):
+    def test_ai_called_only_for_cards(self):
+        cfg = config()
+        cfg.max_cards_per_track = 1
+        ai = RecordingAi()
+        d, new = build(collected(job("1"), job("2"), job("3", location="부산 중구")), cfg, {}, TODAY,
+                       details={"saramin": body_details}, sleep=NO_SLEEP, ai=ai)
+        self.assertEqual(len(ai.bodies), 1)
+        self.assertEqual(d.ai.targets, 1)
+        card = d.new_by_track["설계"][0]
+        self.assertEqual(card.summary, f"AI 본문{card.job_id}")
+        self.assertEqual(card.fit, "상")
+
+    def test_ai_order_closing_first(self):
+        ai = RecordingAi()
+        jobs = [job("1"), job("2", deadline=TODAY + timedelta(days=3))]
+        build(collected(*jobs), config(), {}, TODAY, details={"saramin": body_details}, sleep=NO_SLEEP, ai=ai)
+        self.assertEqual(ai.bodies, ["본문2", "본문1"])
+
+    def test_ai_order_follows_track_order(self):
+        ai = RecordingAi()
+        cfg = config()
+        jobs = [job("1", source="jobkorea", track="개발"), job("2")]
+        build(collected(*jobs), cfg, {}, TODAY,
+              details={"saramin": body_details, "jobkorea": body_details}, sleep=NO_SLEEP, ai=ai)
+        self.assertEqual(ai.bodies, ["본문2", "본문1"])
+
+    def test_closing_card_has_ai_fields(self):
+        d, _ = build(collected(job("1", deadline=TODAY + timedelta(days=2))), config(), {}, TODAY,
+                     details={"saramin": body_details}, sleep=NO_SLEEP, ai=RecordingAi())
+        self.assertEqual((d.closing[0].summary, d.closing[0].required), ("AI 본문1", "AI 필수"))
+        self.assertEqual((d.closing[0].fit, d.closing[0].fit_reason), ("상", "이유"))
+
+    def test_realert_uses_history_fit_without_call(self):
+        entries = {"saramin:9": Entry("옛 공고", "c", "u", "saramin", "설계", TODAY + timedelta(days=3), TODAY,
+                                      summary="옛 요약", fit="상", fit_reason="옛 이유")}
+        ai = RecordingAi()
+        d, _ = build(collected(), config(), entries, TODAY, ai=ai)
+        self.assertEqual((d.closing[0].fit, d.closing[0].fit_reason), ("상", "옛 이유"))
+        self.assertEqual(ai.bodies, [])
+
+    def test_no_ai_digest_ai_none(self):
+        def details(job_id, today):
+            return Detail(address="a", body="주요업무\n- 컨베이어 설계")
+
+        d, new = build(collected(job("1")), config(), {}, TODAY, details={"saramin": details}, sleep=NO_SLEEP)
+        self.assertIsNone(d.ai)
+        self.assertEqual(new[0].summary, "컨베이어 설계")
+        self.assertEqual(new[0].fit, "")
 
 
 if __name__ == "__main__":

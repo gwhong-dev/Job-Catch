@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Callable
 
+from .ai import AiStats, enrich_jobs
 from .commute import Kakao, KakaoUnavailable, commute_status
 from .config import Config, Track
 from .filters import classify
@@ -94,6 +95,8 @@ class ClosingItem:
     summary: str = ""
     tags: list[str] = field(default_factory=list)
     required: str = ""
+    fit: str = ""
+    fit_reason: str = ""
 
 
 @dataclass
@@ -114,6 +117,7 @@ class Digest:
     with_body: int = 0
     with_summary: int = 0
     with_required: int = 0
+    ai: AiStats | None = None  # AI 단계 건수 (키가 없으면 None)
 
 
 def _province(location: str) -> str:
@@ -255,6 +259,7 @@ def build(
     kakao: Kakao | None = None,
     sleep: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
+    ai=None,
 ) -> tuple[Digest, list[Job]]:
     """두 번째 값은 기록에 남길 새 공고 전부 (카드 상한으로 잘린 것 포함, 내일로 미룬 것 제외)."""
     tracks = {t.name: t for t in cfg.tracks}
@@ -293,20 +298,9 @@ def build(
         kept.append(job)
 
     soon = today + timedelta(days=CLOSING_DAYS)
-    closing: list[ClosingItem] = []
-    closing_keys: set[str] = set()
-    for j in kept:
-        if j.deadline and today <= j.deadline <= soon:
-            closing.append(ClosingItem(j.title, j.company, j.url, j.source, j.track, j.deadline,
-                                       list(j.flags), j.commute_min, j.location,
-                                       j.address, j.summary, list(j.tags), j.required))
-            closing_keys.add(j.key)
-    for key, e in entries.items():
-        if not e.excluded and e.deadline and today <= e.deadline <= soon:
-            closing.append(ClosingItem(e.title, e.company, e.url, e.source, e.track, e.deadline,
-                                       list(e.flags), commute.minutes_to(e.address), e.location,
-                                       e.address, e.summary, list(e.tags), e.required))
-    closing.sort(key=lambda c: (c.deadline, c.title))
+    closing_jobs = sorted((j for j in kept if j.deadline and today <= j.deadline <= soon),
+                          key=lambda j: (j.deadline, j.title))
+    closing_keys = {j.key for j in closing_jobs}
 
     new_by_track: dict[str, list[Job]] = {t.name: [] for t in cfg.tracks}
     for j in kept:
@@ -325,6 +319,25 @@ def build(
             overflow[name] = extra
             del jobs[cfg.max_cards_per_track:]
 
+    # AI 는 메일에 실리는 카드만: 마감 임박 먼저, 그다음 갈래 순서 · 카드 순서 (한도에 걸리면 뒤쪽이 규칙 요약)
+    ai_stats = None
+    if ai is not None:
+        cards = closing_jobs + [j for t in cfg.tracks for j in new_by_track[t.name]]
+        ai_stats = enrich_jobs(cards, {t.name: t.fit for t in cfg.tracks}, ai)
+
+    closing: list[ClosingItem] = []
+    for j in closing_jobs:
+        closing.append(ClosingItem(j.title, j.company, j.url, j.source, j.track, j.deadline,
+                                   list(j.flags), j.commute_min, j.location,
+                                   j.address, j.summary, list(j.tags), j.required, j.fit, j.fit_reason))
+    for key, e in entries.items():
+        if not e.excluded and e.deadline and today <= e.deadline <= soon:
+            # 다시 알림 카드는 AI 를 부르지 않고 보낸 기록의 값을 쓴다
+            closing.append(ClosingItem(e.title, e.company, e.url, e.source, e.track, e.deadline,
+                                       list(e.flags), commute.minutes_to(e.address), e.location,
+                                       e.address, e.summary, list(e.tags), e.required, e.fit, e.fit_reason))
+    closing.sort(key=lambda c: (c.deadline, c.title))
+
     digest = Digest(
         today=today,
         new_by_track=new_by_track,
@@ -342,5 +355,6 @@ def build(
         detail_failed=sum(commute.fails.values()),
         detail_failed_sites=[s for s, n in commute.tries.items()
                              if n >= 3 and commute.fails.get(s, 0) * 2 >= n],
+        ai=ai_stats,
     )
     return digest, kept

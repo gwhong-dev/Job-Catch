@@ -31,6 +31,8 @@ class Job:
     required: str = ""  # 필수조건 (자격요건 구역)
     tags: list[str] = field(default_factory=list)
     group: str = ""  # 갈래 안 세부 묶음
+    fit: str = ""  # AI 적합도: 상 · 중 · 하 (모르면 빈 값)
+    fit_reason: str = ""
     # 메모리 전용 (보낸 기록에 저장하지 않음): AI 요약에 보낼 본문 글자와 공고 이미지 주소
     body: str = ""
     images: list[str] = field(default_factory=list)

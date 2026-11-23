@@ -44,6 +44,7 @@ class Track:
     career: list[str]
     include_any: list[str] = field(default_factory=list)
     groups: dict[str, list[str]] = field(default_factory=dict)  # 세부 묶음: 이름 → 제목에서 찾을 단어
+    fit: str = ""  # AI 적합도 기준 한 단락 (비우면 적합도를 묻지 않음)
 
 
 @dataclass
