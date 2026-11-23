@@ -417,6 +417,7 @@ class RecordingAi:
         self.bodies: list[str] = []
 
     def analyze(self, body, images, fit_rule, time_left=None):
+        body = body.split("\n\n", 1)[-1]  # 앞의 "공고 제목: …" 줄은 떼고 본문으로 비교
         self.bodies.append(body)
         return AiResult(f"AI {body}", "AI 필수", "상", "이유")
 

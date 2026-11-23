@@ -174,17 +174,41 @@ def _items(segment: str) -> list[str]:
     return items
 
 
-def image_urls(html: str, hosts: set[str]) -> list[str]:
-    """본문 HTML 의 <img src> 중 허용 호스트의 것만, 절대 https 주소로 (순서 유지, 중복 제외)."""
+_PX_RE = re.compile(r"width\s*:\s*(\d+)\s*px", re.I)
+MIN_IMAGE_PX = 50  # 이보다 작다고 적힌 그림은 점 · 아이콘으로 보고 뺀다
+
+
+def _tiny(img) -> bool:
+    sizes = [img.get("width", ""), img.get("height", "")]
+    m = _PX_RE.search(img.get("style", "") or "")
+    if m:
+        sizes.append(m.group(1))
+    return any(str(v).strip().isdigit() and int(str(v).strip()) < MIN_IMAGE_PX for v in sizes)
+
+
+def image_urls(html: str, skip_hosts: tuple[str, ...]) -> list[str]:
+    """본문 HTML 의 <img src> 를 절대 https 주소로 (순서 유지, 중복 제외).
+
+    꾸밈 이미지 호스트(skip_hosts 와 그 하위 도메인)와 아주 작은 그림은 뺀다.
+    공고 이미지는 사이트 서버 말고도 회사 S3 · 다른 채용 사이트 파일 서버 등 여러 곳에 올라가서
+    허용 목록이 아니라 제외 목록으로 거른다.
+    """
     out: list[str] = []
     for img in BeautifulSoup(html, "html.parser").find_all("img"):
         src = (img.get("src") or "").strip()
-        if src.startswith("//"):
+        low = src.lower()
+        if low.startswith("//"):
             src = "https:" + src
-        elif src.startswith("http://"):
+        elif low.startswith("http://"):
             src = "https://" + src[len("http://"):]
-        host = src[len("https://"):].split("/", 1)[0].lower() if src.startswith("https://") else ""
-        if host in hosts and src not in out:
+        elif low.startswith("https://"):
+            src = "https://" + src[len("https://"):]
+        else:
+            continue  # 상대 주소 · data: 등
+        host = src[len("https://"):].split("/", 1)[0].split("?", 1)[0].lower()
+        if not host or any(host == h or host.endswith("." + h) for h in skip_hosts) or _tiny(img):
+            continue
+        if src not in out:
             out.append(src)
     return out
 

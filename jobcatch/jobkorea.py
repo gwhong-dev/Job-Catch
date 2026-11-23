@@ -173,14 +173,14 @@ def fetch_detail(job_id: str, today: date, delay_sec: float = 2.0) -> Detail:
     return detail
 
 
-# 2026-11-23 실제 공고 8건 확인: 본문 이미지는 imgraph.jobkorea.co.kr/images/jobkorea/ 에 있고,
+# 2026-11-23 실제 공고 확인: 본문 이미지는 imgraph.jobkorea.co.kr · file2.jobkorea.co.kr 등에 있고,
 # frontend-app-cdn.jobkorea.co.kr 는 화면 틀(스크립트 · 스타일 · 아이콘)이라 뺀다
-IMAGE_HOSTS = {"imgraph.jobkorea.co.kr"}
+SKIP_IMAGE_HOSTS = ("frontend-app-cdn.jobkorea.co.kr",)
 
 
 def parse_images(html: str) -> list[str]:
     """상세요강 본문의 공고 이미지 주소."""
-    return image_urls(html, IMAGE_HOSTS)
+    return image_urls(html, SKIP_IMAGE_HOSTS)
 
 
 def parse_body(html: str) -> str:

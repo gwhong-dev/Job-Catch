@@ -13,6 +13,13 @@
 
 **Spec:** `docs/superpowers/specs/2026-11-23-ai-summary-fit-design.md`
 
+**진행 (2026-11-23):** Task 1~5 완료, opus 전체 검증 반영(예상 못 한 오류도 카드만 실패, 남은 시간 안으로 요청, 404 중단, 전부 실패 경고).
+dry-run 결과는 AI 요약 44/46건, 적합도 상 10 · 중 20 · 하 14였다. 이를 보고 세 가지를 바꿨다.
+- 이미지를 허용 호스트 대신 제외 호스트로 거름
+- 장당 상한 7MB, 형식은 첫 바이트로 판단
+- 제목을 함께 보냄
+남은 일: GitHub Secret `GEMINI_API_KEY` 등록(사용자), 첫 실행 로그의 "AI 요약 N건" 확인.
+
 ## Global Constraints
 
 - 새 의존성 금지. `requirements.txt` 는 requests · beautifulsoup4 그대로 (SDK · Pillow 없음)
@@ -56,11 +63,11 @@
   - `saramin.parse_images(html: str) -> list[str]`
   - `jobkorea.parse_images(html: str) -> list[str]`
 
-- [ ] **Step 1: 잡코리아 실제 이미지 주소 확인 (네트워크 1회성)**
+- [x] **Step 1: 잡코리아 실제 이미지 주소 확인 (네트워크 1회성)**
 
   잡코리아 개발 갈래 검색 결과에서 공고 3~5건의 `GI_Read_Comt_Ifrm?Gno=<id>` 를 요청 사이 2초 쉬며 받아 `<img src>` 의 호스트를 본다. 공고 이미지 호스트와 꾸밈 이미지(로고 · 아이콘 · 빈 그림) 패턴을 정하고, 한 건을 줄여 fixture 로 저장한다. 결과(허용 호스트)를 `jobkorea.py` 상수 주석에 한 줄로 남긴다.
 
-- [ ] **Step 2: 실패하는 테스트 쓰기**
+- [x] **Step 2: 실패하는 테스트 쓰기**
 
 ```python
 # tests/test_saramin.py
@@ -89,23 +96,23 @@ def test_lookup_keeps_body_and_images_on_job(self):
     # kept 공고의 job.body == "본문", job.images == [그 주소]
 ```
 
-- [ ] **Step 3: 테스트가 실패하는지 확인**
+- [x] **Step 3: 테스트가 실패하는지 확인**
 
   Run: `python -m pytest tests/test_saramin.py tests/test_jobkorea.py tests/test_digest.py -q`
   Expected: `parse_images` 없음 · `images` 속성 없음으로 FAIL
 
-- [ ] **Step 4: 구현**
+- [x] **Step 4: 구현**
 
   - `parse_images`: BeautifulSoup 으로 `<img src>` 를 모으고, `//` 로 시작하면 `https:` 를 붙인다. 허용 호스트(사람인 `pds.saramin.co.kr`, 잡코리아는 Step 1 결과)만 남긴다. 순서는 유지하고 중복은 뺀다.
   - `fetch_detail` 두 곳: 본문 HTML 로 `detail.images = parse_images(html)`. 사람인은 본문 HTML 을 이미 한 번 받으므로 그것을 다시 쓴다.
   - `judge`: `if detail.body:` 분기와 상관없이 `job.body, job.images = detail.body, detail.images`.
 
-- [ ] **Step 5: 테스트 통과 확인**
+- [x] **Step 5: 테스트 통과 확인**
 
   Run: `python -m pytest -q`
   Expected: 전부 PASS
 
-- [ ] **Step 6: Commit** — `git commit -m "상세 본문의 공고 이미지 주소 모으기 (사람인 · 잡코리아)"`
+- [x] **Step 6: Commit** — `git commit -m "상세 본문의 공고 이미지 주소 모으기 (사람인 · 잡코리아)"`
 
 ---
 
@@ -129,7 +136,7 @@ def test_lookup_keeps_body_and_images_on_job(self):
   - `download_images(urls: list[str], get=requests.get, sleep=time.sleep) -> tuple[list[tuple[str, bytes]], int]` — (mime, 바이트) 목록과 뺀 장수
   - `clip(text: str, limit: int) -> str`
 
-- [ ] **Step 1: 실패하는 테스트 쓰기** (`tests/test_ai.py`, 가짜 `post` · `get` · `sleep` · `clock` 주입, 네트워크 없음)
+- [x] **Step 1: 실패하는 테스트 쓰기** (`tests/test_ai.py`, 가짜 `post` · `get` · `sleep` · `clock` 주입, 네트워크 없음)
 
 ```python
 def test_parses_schema_response(self):
@@ -171,12 +178,12 @@ def test_download_skips_non_image(self):
     # content-type text/html 응답, 상태 404, requests.RequestException → 각각 빼고 계속
 ```
 
-- [ ] **Step 2: 테스트가 실패하는지 확인**
+- [x] **Step 2: 테스트가 실패하는지 확인**
 
   Run: `python -m pytest tests/test_ai.py -q`
   Expected: `jobcatch.ai` 없음으로 FAIL
 
-- [ ] **Step 3: 구현**
+- [x] **Step 3: 구현**
 
   - 엔드포인트: `https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent`, timeout 120초.
   - 요청 본문: `generationConfig = {"response_mime_type": "application/json", "response_schema": <스키마>, "temperature": 0}`.
@@ -199,12 +206,12 @@ fit: 아래 기준으로 상 · 중 · 하. reason: 그렇게 본 이유 한 줄
 {body[:12000]}
 ```
 
-- [ ] **Step 4: 테스트 통과 확인**
+- [x] **Step 4: 테스트 통과 확인**
 
   Run: `python -m pytest -q`
   Expected: 전부 PASS (기존 `test_summary.py` 포함 — `_join` 기본 동작 그대로)
 
-- [ ] **Step 5: Commit** — `git commit -m "Gemini 클라이언트: 요약 · 필수조건 · 적합도, 이미지 상한, 429 재시도"`
+- [x] **Step 5: Commit** — `git commit -m "Gemini 클라이언트: 요약 · 필수조건 · 적합도, 이미지 상한, 429 재시도"`
 
 ---
 
@@ -226,7 +233,7 @@ fit: 아래 기준으로 상 · 중 · 하. reason: 그렇게 본 이유 한 줄
   - `build(..., ai: Gemini | None = None)` → `Digest.ai: AiStats | None` (ai 가 None 이면 None)
   - `ClosingItem.fit: str = ""`, `ClosingItem.fit_reason: str = ""`
 
-- [ ] **Step 1: 실패하는 테스트 쓰기**
+- [x] **Step 1: 실패하는 테스트 쓰기**
 
 ```python
 # tests/test_ai.py (FakeGemini: analyze 가 미리 정한 결과 · 예외를 차례로 돌려줌)
@@ -259,12 +266,12 @@ def test_no_ai_digest_ai_none(self):
     # ai=None → digest.ai is None, 요약은 규칙 값 그대로
 ```
 
-- [ ] **Step 2: 테스트가 실패하는지 확인**
+- [x] **Step 2: 테스트가 실패하는지 확인**
 
   Run: `python -m pytest tests/test_ai.py tests/test_digest.py -q`
   Expected: FAIL
 
-- [ ] **Step 3: 구현**
+- [x] **Step 3: 구현**
 
   - `enrich_jobs`: 대상은 `job.body.strip() or job.images` 인 공고다. 공고마다 아래를 차례로 한다.
     1. 시간 한도 확인
@@ -285,12 +292,12 @@ def test_no_ai_digest_ai_none(self):
     - `config.Track.fit: str = ""`. 설정 파일에서 읽는 것은 Task 5 에서 한다.
     - `history.Entry.fit: str = ""`, `history.Entry.fit_reason: str = ""`. 저장 · 읽기는 Task 4 에서 한다.
 
-- [ ] **Step 4: 테스트 통과 확인**
+- [x] **Step 4: 테스트 통과 확인**
 
   Run: `python -m pytest -q`
   Expected: 전부 PASS
 
-- [ ] **Step 5: Commit** — `git commit -m "카드 선택 뒤 AI 단계: 마감 임박 먼저, 상한 · 시간 · 중단 처리"`
+- [x] **Step 5: Commit** — `git commit -m "카드 선택 뒤 AI 단계: 마감 임박 먼저, 상한 · 시간 · 중단 처리"`
 
 ---
 
@@ -305,7 +312,7 @@ def test_no_ai_digest_ai_none(self):
 - Consumes: `Job.fit` · `fit_reason`, `ClosingItem.fit` · `fit_reason`, `Entry.fit` · `fit_reason`, `Digest.ai: AiStats | None`
 - Produces: 메일 HTML 의 🎯 줄과 경고 상자
 
-- [ ] **Step 1: 실패하는 테스트 쓰기**
+- [x] **Step 1: 실패하는 테스트 쓰기**
 
 ```python
 # tests/test_history.py
@@ -330,23 +337,23 @@ def test_no_warning_when_ai_off_or_ok(self):
     # Digest.ai None, 또는 stopped None → 위 문구 없음
 ```
 
-- [ ] **Step 2: 테스트가 실패하는지 확인**
+- [x] **Step 2: 테스트가 실패하는지 확인**
 
   Run: `python -m pytest tests/test_history.py tests/test_mail.py -q`
   Expected: FAIL
 
-- [ ] **Step 3: 구현**
+- [x] **Step 3: 구현**
 
   - 🎯 줄은 `📝` 줄과 같은 `line` 스타일로 `🎯 <b>{fit}</b> · {reason}` 을 쓴다. 이유가 없으면 `🎯 <b>{fit}</b>` 만 쓴다. 모두 escape 한다.
   - 줄 위치는 📍 줄 다음, 📝 앞이다.
   - 경고 상자는 `commute_failed` 경고 다음 자리에 둔다.
 
-- [ ] **Step 4: 테스트 통과 확인**
+- [x] **Step 4: 테스트 통과 확인**
 
   Run: `python -m pytest -q`
   Expected: 전부 PASS
 
-- [ ] **Step 5: Commit** — `git commit -m "메일 카드 🎯 적합도 줄, AI 중단 경고, 기록에 적합도 저장"`
+- [x] **Step 5: Commit** — `git commit -m "메일 카드 🎯 적합도 줄, AI 중단 경고, 기록에 적합도 저장"`
 
 ---
 
@@ -364,7 +371,7 @@ def test_no_warning_when_ai_off_or_ok(self):
   - `Track.fit: str = ""`, `Config.ai_model: str = DEFAULT_MODEL`
   - `run.main(..., ai_factory: Callable[[str, str], Gemini] = Gemini)` — 인자는 (키, 모델)
 
-- [ ] **Step 1: 실패하는 테스트 쓰기**
+- [x] **Step 1: 실패하는 테스트 쓰기**
 
 ```python
 # tests/test_config.py
@@ -389,12 +396,12 @@ def test_gemini_key_passed_as_secret(self):
     self.assertIn("GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}", text)
 ```
 
-- [ ] **Step 2: 테스트가 실패하는지 확인**
+- [x] **Step 2: 테스트가 실패하는지 확인**
 
   Run: `python -m pytest tests/test_config.py tests/test_run.py tests/test_workflow.py -q`
   Expected: FAIL
 
-- [ ] **Step 3: 구현**
+- [x] **Step 3: 구현**
 
   - `config.py`: `fit` 이 글자가 아니면 `ConfigError(f"{where}: fit 은 글자여야 합니다")`. `[ai]` 는 `_table(data, "ai")`.
   - `run.py`: 키가 있으면 `ai_factory(key, cfg.ai_model)` 를 `build(..., ai=...)` 에 넘긴다. 기존 적중률 줄 다음에 Global Constraints 의 로그 줄을 찍고, `digest.ai.stopped` 가 있으면 stderr 에 경고를 찍는다.
@@ -411,12 +418,12 @@ def test_gemini_key_passed_as_secret(self):
     - "범위"에 공고 이미지 요청(메일에 실리는 카드만, 공고당 최대 6장)을 더한다.
     - 첫 실행 로그 확인 목록에 "AI 요약 N건" 이 0 이 아닌지를 더한다.
 
-- [ ] **Step 4: 테스트 통과 확인**
+- [x] **Step 4: 테스트 통과 확인**
 
   Run: `python -m pytest -q`
   Expected: 전부 PASS
 
-- [ ] **Step 5: 실제 dry-run 으로 확인 (네트워크, 하루 1회 조회 원칙 안에서 한 번)**
+- [x] **Step 5: 실제 dry-run 으로 확인 (네트워크, 하루 1회 조회 원칙 안에서 한 번)**
 
   Run (PowerShell):
 
@@ -427,4 +434,4 @@ def test_gemini_key_passed_as_secret(self):
   조건: 키는 사용자 환경 변수(레지스트리)에 있다. 로컬 `config.toml` 의 `fit` 단락은 사용자에게 확인받은 문장으로 넣는다.
   Expected: 로그에 `AI 요약 N건 / 대상 M건` (N > 0), `output/mail_<날짜>.html` 카드에 🎯 줄이 있음, 이미지 공고 카드에 📝 가 있음
 
-- [ ] **Step 6: Commit** — `git commit -m "Gemini 키 · [ai] model · 갈래 fit 설정, 실행 로그, 워크플로, README"`
+- [x] **Step 6: Commit** — `git commit -m "Gemini 키 · [ai] model · 갈래 fit 설정, 실행 로그, 워크플로, README"`

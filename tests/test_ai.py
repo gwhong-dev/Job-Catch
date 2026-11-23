@@ -275,25 +275,46 @@ class FakeGet:
         return r
 
 
-def img(size: int, mime: str = "image/jpeg") -> Resp:
-    return Resp(200, text="", content=b"\xff" * size, headers={"Content-Type": mime})
+MAGIC = {"jpeg": b"\xff\xd8\xff\xe0", "png": b"\x89PNG\r\n\x1a\n", "webp": b"RIFF\x00\x00\x00\x00WEBPVP8 ",
+         "gif": b"GIF89a"}
+
+
+def img(size: int, kind: str = "jpeg", content_type: str = "image/jpeg") -> Resp:
+    head = MAGIC[kind]
+    return Resp(200, text="", content=head + b"\x00" * (size - len(head)), headers={"Content-Type": content_type})
 
 
 class DownloadTest(unittest.TestCase):
     def test_download_limits(self):
         urls = [f"https://pds.saramin.co.kr/{i}.jpg" for i in range(8)]
         responses = {u: img(10) for u in urls}
-        responses[urls[1]] = img(4_000_001)
-        responses[urls[2]] = img(10, "image/gif")
+        responses[urls[1]] = img(7_000_001)
+        responses[urls[2]] = img(10, "gif", "image/gif")
         responses[urls[3]] = img(3_900_000)
-        responses[urls[4]] = img(3_900_000, "image/png")
-        responses[urls[5]] = img(3_900_000, "image/webp; charset=binary")
+        responses[urls[4]] = img(3_900_000, "png", "image/png")
+        responses[urls[5]] = img(3_900_000, "webp", "image/webp; charset=binary")
         # 0(10) + 3 + 4 + 5 = 11,700,010. 6, 7 번째는 6장 상한 밖
         sleeps: list[float] = []
         got, dropped = download_images(urls, get=FakeGet(responses), sleep=sleeps.append)
         self.assertEqual([m for m, _ in got], ["image/jpeg", "image/jpeg", "image/png", "image/webp"])
         self.assertEqual(dropped, 4)
         self.assertEqual(sleeps, [1] * 5)
+
+    def test_big_poster_image_kept(self):
+        # 세로로 긴 공고 이미지는 5MB 를 넘기도 한다 (실제 5.6MB PNG 확인)
+        got, dropped = download_images(["https://x/a.png"], get=FakeGet({"https://x/a.png": img(5_634_178, "png")}),
+                                       sleep=lambda s: None)
+        self.assertEqual((len(got), dropped), (1, 0))
+
+    def test_type_from_bytes_not_header(self):
+        # file2.jobkorea.co.kr 는 JPEG 를 application/octet-stream 으로 준다
+        urls = ["https://x/a", "https://x/b"]
+        responses = {urls[0]: img(100, "jpeg", "application/octet-stream"),
+                     urls[1]: Resp(200, text="<html>", content=b"<html><body>error</body></html>",
+                                   headers={"Content-Type": "image/jpeg"})}
+        got, dropped = download_images(urls, get=FakeGet(responses), sleep=lambda s: None)
+        self.assertEqual([m for m, _ in got], ["image/jpeg"])
+        self.assertEqual(dropped, 1)
 
     def test_total_over_14mb_dropped(self):
         urls = [f"https://pds.saramin.co.kr/{i}.jpg" for i in range(4)]
@@ -307,20 +328,17 @@ class DownloadTest(unittest.TestCase):
                 "https://pds.saramin.co.kr/c.jpg", "https://pds.saramin.co.kr/d.jpg"]
         responses = {
             urls[0]: Resp(200, text="<html>", content=b"<html>", headers={"Content-Type": "text/html"}),
-            urls[1]: Resp(404, text="", content=b"", headers={"Content-Type": "image/jpeg"}),
+            urls[1]: Resp(404, text="", content=MAGIC["jpeg"], headers={"Content-Type": "image/jpeg"}),
             urls[2]: requests.ConnectionError("x"),
-            urls[3]: img(5, "image/jpg"),
+            urls[3]: img(5, "jpeg", "image/jpg"),
         }
         got, dropped = download_images(urls, get=FakeGet(responses), sleep=lambda s: None)
-        self.assertEqual(got, [("image/jpeg", b"\xff" * 5)])
+        self.assertEqual(got, [("image/jpeg", MAGIC["jpeg"] + b"\x00")])
         self.assertEqual(dropped, 3)
 
     def test_empty(self):
         self.assertEqual(download_images([], get=FakeGet({}), sleep=lambda s: None), ([], 0))
 
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 # ---- enrich_jobs (카드 선택 뒤 AI 단계) ----
@@ -366,6 +384,12 @@ class EnrichTest(unittest.TestCase):
                             {"설계": "기준"}, ai, download=no_download)
         self.assertEqual((stats.targets, stats.done), (1, 1))
         self.assertEqual(len(ai.calls[0][1]), 1)
+
+    def test_title_sent_with_body(self):
+        ai = FakeGemini(R)
+        enrich_jobs([make_job("1", body="본문")], {}, ai, download=no_download)
+        self.assertIn("공고1(예시)", ai.calls[0][0])
+        self.assertIn("본문", ai.calls[0][0])
 
     def test_no_body_no_images_not_target(self):
         ai = FakeGemini()
@@ -446,3 +470,7 @@ class EnrichTest(unittest.TestCase):
 
     def test_empty_stats(self):
         self.assertEqual(AiStats().fit, {"상": 0, "중": 0, "하": 0})
+
+
+if __name__ == "__main__":
+    unittest.main()

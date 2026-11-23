@@ -147,13 +147,14 @@ def _get(url: str, job_id: str) -> str:
     return resp.text
 
 
-# 실제 공고 이미지는 pds 에 있다. static.saraminimage.co.kr(빈 그림 · 양식 머리) · 회사 로고 등 꾸밈 이미지는 뺀다
-IMAGE_HOSTS = {"pds.saramin.co.kr"}
+# 공고 이미지는 pds.saramin.co.kr 말고도 회사 S3 · file2.jobkorea.co.kr 등에 있다 (2026-11-23 실제 공고 확인).
+# *.saraminimage.co.kr(빈 그림 · 양식 머리 · 회사 로고)는 꾸밈 이미지라 뺀다
+SKIP_IMAGE_HOSTS = ("saraminimage.co.kr",)
 
 
 def parse_images(html: str) -> list[str]:
     """상세요강 본문의 공고 이미지 주소."""
-    return image_urls(html, IMAGE_HOSTS)
+    return image_urls(html, SKIP_IMAGE_HOSTS)
 
 
 def fetch_detail(job_id: str, today: date, delay_sec: float = 2.0) -> Detail:

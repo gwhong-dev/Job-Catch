@@ -62,6 +62,7 @@ class ImagesTest(unittest.TestCase):
         self.assertEqual(jobkorea.parse_images(html), [
             "https://imgraph.jobkorea.co.kr/images/jobkorea/aaaa1111.png",
             "https://imgraph.jobkorea.co.kr/images/jobkorea/bbbb2222.png",
+            "https://file2.jobkorea.co.kr/Net/Mng/DownImage/CorpEditor?file_No=1234",
         ])
 
 

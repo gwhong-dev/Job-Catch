@@ -69,7 +69,7 @@ class JobkoreaFetchDetailTest(unittest.TestCase):
                          "GI_Read/": page("jobkorea_detail.html")})
         with mock.patch.object(jobkorea.requests, "get", router):
             d = jobkorea.fetch_detail("1", TODAY, delay_sec=0)
-        self.assertEqual(len(d.images), 2)
+        self.assertEqual(len(d.images), 3)
 
     def test_body_failure_keeps_page_values(self):
         router = Router({"GI_Read/": page("jobkorea_detail.html")})
