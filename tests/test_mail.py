@@ -38,6 +38,14 @@ class SubjectTest(unittest.TestCase):
 
 
 class HtmlTest(unittest.TestCase):
+    def test_required_line(self):
+        html = render_html(digest(new_by_track={"설계": [job("1", required="Creo <3년> & 영어")]}, new_total=1))
+        self.assertIn("✅ 필수: Creo &lt;3년&gt; &amp; 영어", html)
+
+    def test_no_required_line_when_empty(self):
+        html = render_html(digest(new_by_track={"설계": [job("1")]}, new_total=1))
+        self.assertNotIn("✅", html)
+
     def test_escapes(self):
         h = render_html(digest(new_by_track={"설계": [job("1", title="<b>개발</b> & 설계")]}, new_total=1))
         self.assertIn("&lt;b&gt;개발&lt;/b&gt; &amp; 설계", h)

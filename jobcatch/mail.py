@@ -60,15 +60,16 @@ def _badges(items: list[str], bg: str, color: str) -> str:
 
 
 def _card(*, dday: str, urgent: bool, company: str, source: str, title: str, place: str,
-          commute_min: int | None, summary: str, tags: list[str], flags: list[str], url: str) -> str:
+          commute_min: int | None, summary: str, required: str, tags: list[str], flags: list[str],
+          url: str) -> str:
     color = C_URGENT if urgent else C_ACCENT
     where = [f"📍 {escape(place)}"] if place else []
     if commute_min is not None:
         where.append(f"🚇 약 {commute_min}분")
-    summary_html = (
-        f'<div style="font-size:13px;color:{C_TEXT};line-height:1.5;margin-top:4px">📝 {escape(summary)}</div>'
-        if summary else ""
-    )
+    line = f'<div style="font-size:13px;color:{C_TEXT};line-height:1.5;margin-top:4px">'
+    summary_html = f"{line}📝 {escape(summary)}</div>" if summary else ""
+    if required:
+        summary_html += f"{line}✅ 필수: {escape(required)}</div>"
     return (
         f'<div style="border:1px solid {C_LINE};border-radius:12px;padding:12px 14px;margin:0 0 10px">'
         f'<div style="font-size:13px;color:{C_SUB}">'
@@ -90,7 +91,7 @@ def _job_card(j: Job, today: date) -> str:
     return _card(
         dday=_dday(j.deadline, today, j.deadline_text), urgent=False, company=j.company,
         source=j.source, title=title, place=j.address or j.location, commute_min=j.commute_min,
-        summary=j.summary, tags=j.tags, flags=j.flags, url=j.url,
+        summary=j.summary, required=j.required, tags=j.tags, flags=j.flags, url=j.url,
     )
 
 
@@ -98,7 +99,7 @@ def _closing_card(c: ClosingItem, today: date) -> str:
     return _card(
         dday=_dday(c.deadline, today, ""), urgent=True, company=c.company, source=c.source,
         title=f"{c.title} · {c.track}", place=c.address or c.location, commute_min=c.commute_min,
-        summary=c.summary, tags=c.tags, flags=c.flags, url=c.url,
+        summary=c.summary, required=c.required, tags=c.tags, flags=c.flags, url=c.url,
     )
 
 

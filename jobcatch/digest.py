@@ -12,7 +12,7 @@ from .config import Config, Track
 from .filters import classify
 from .history import Entry
 from .models import Detail, Job
-from .summary import extract_duty, find_tags, group_of
+from .summary import analyze, group_of
 
 Fetcher = Callable[[str, list[str], int, float, date], list[Job]]
 DetailFetcher = Callable[[str, date], Detail]
@@ -76,6 +76,7 @@ class ClosingItem:
     address: str = ""
     summary: str = ""
     tags: list[str] = field(default_factory=list)
+    required: str = ""
 
 
 @dataclass
@@ -156,8 +157,8 @@ class _Commute:
             job.education = detail.education
         job.address = detail.address
         if detail.body:
-            job.summary = extract_duty(detail.body)
-            job.tags = find_tags(detail.body, common.extra_tags)
+            a = analyze(detail.body, common.extra_tags)
+            job.summary, job.required, job.tags = a.duty, a.required, a.tags
         minutes = None
         if self.on:
             try:
@@ -223,7 +224,7 @@ def build(
         if j.deadline and today <= j.deadline <= soon:
             closing.append(ClosingItem(j.title, j.company, j.url, j.source, j.track, j.deadline,
                                        list(j.flags), j.commute_min, j.location,
-                                       j.address, j.summary, list(j.tags)))
+                                       j.address, j.summary, list(j.tags), j.required))
             closing_keys.add(j.key)
     for key, e in entries.items():
         if not e.excluded and e.deadline and today <= e.deadline <= soon:
@@ -236,9 +237,12 @@ def build(
             new_by_track[j.track].append(j)
     overflow: dict[str, int] = {}
     for name, jobs in new_by_track.items():
-        # 묶음 순서(설정 순서, "기타" 는 맨 뒤) → 마감일 → 제목. 상한에 걸리면 뒤쪽 묶음부터 잘린다
+        # 묶음 순서(설정 순서, "기타" 는 맨 뒤) → 통근 짧은 순(모름은 뒤) → 마감일 → 제목.
+        # 상한에 걸리면 뒤쪽 묶음부터, 묶음 안에서는 먼 공고부터 잘린다
         order = {g: i for i, g in enumerate(tracks[name].groups)}
-        jobs.sort(key=lambda j: (order.get(j.group, len(order)), j.deadline or date.max, j.title))
+        jobs.sort(key=lambda j: (order.get(j.group, len(order)),
+                                 j.commute_min if j.commute_min is not None else float("inf"),
+                                 j.deadline or date.max, j.title))
         extra = len(jobs) - cfg.max_cards_per_track
         if extra > 0:
             overflow[name] = extra

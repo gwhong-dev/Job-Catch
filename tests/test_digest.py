@@ -151,6 +151,13 @@ class CommuteTest(unittest.TestCase):
         self.assertEqual(new[0].commute_min, 50)
         self.assertFalse(d.commute_failed)
 
+    def test_group_sorted_by_commute(self):
+        kakao = FakeKakao({(1.0, 1.0): 50, (1.0, 2.0): 30})
+        jobs = [job("1"), job("2"), job("3", location="서울 금천구")]
+        details = {"saramin": lambda i, t: Detail(address=f"주소{i}", coords=(1.0, float(i)))}
+        d, _ = build(collected(*jobs), self.cfg(), {}, TODAY, details=details, kakao=kakao, sleep=NO_SLEEP)
+        self.assertEqual([j.job_id for j in d.new_by_track["설계"]], ["2", "1", "3"])  # 30분, 50분, 모름
+
     def test_commute_soft_limit_flags(self):
         kakao = FakeKakao({(1.0, 1.0): 70})
         _, new = build(collected(job("1")), self.cfg(), {}, TODAY,
@@ -257,6 +264,13 @@ class SummaryGroupTest(unittest.TestCase):
         self.assertEqual(new[0].address, "서울 중구 세종대로 110")
         self.assertEqual(new[0].summary, "컨베이어 설계")
         self.assertEqual(new[0].tags, ["Creo", "컨베이어"])
+
+    def test_detail_fills_required(self):
+        def details(job_id, today):
+            return Detail(address="a", body="주요업무\n- 컨베이어 설계\n자격요건\n- Creo 3년 이상\n우대사항\n- 영어")
+
+        _, new = build(collected(job("1")), config(), {}, TODAY, details={"saramin": details}, sleep=NO_SLEEP)
+        self.assertEqual(new[0].required, "Creo 3년 이상")
 
     def test_groups_order_and_other(self):
         cfg = config()
