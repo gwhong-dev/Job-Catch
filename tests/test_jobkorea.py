@@ -2,6 +2,7 @@ import unittest
 from datetime import date, timedelta
 from pathlib import Path
 
+from jobcatch import jobkorea
 from jobcatch.jobkorea import parse_deadline, parse_search_page, search_params
 
 FIX = Path(__file__).parent / "fixtures"
@@ -53,6 +54,15 @@ class ParamsTest(unittest.TestCase):
         self.assertEqual(p["Page_No"], 2)
         self.assertEqual(p["careerType"], 1)
         self.assertNotIn("careerType", search_params("백엔드", ["신입", "경력"], 1))
+
+
+class ImagesTest(unittest.TestCase):
+    def test_parse_images_from_fixture(self):
+        html = (FIX / "jobkorea_body_images.html").read_text(encoding="utf-8")
+        self.assertEqual(jobkorea.parse_images(html), [
+            "https://imgraph.jobkorea.co.kr/images/jobkorea/aaaa1111.png",
+            "https://imgraph.jobkorea.co.kr/images/jobkorea/bbbb2222.png",
+        ])
 
 
 if __name__ == "__main__":

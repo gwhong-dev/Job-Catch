@@ -373,6 +373,21 @@ class SummaryGroupTest(unittest.TestCase):
         self.assertEqual(new[0].summary, "컨베이어 설계")
         self.assertEqual(new[0].tags, ["Creo", "컨베이어"])
 
+    def test_lookup_keeps_body_and_images_on_job(self):
+        def details(job_id, today):
+            return Detail(address="a", body="본문", images=["https://pds.saramin.co.kr/a.jpg"])
+
+        _, new = build(collected(job("1")), config(), {}, TODAY, details={"saramin": details}, sleep=NO_SLEEP)
+        self.assertEqual(new[0].body, "본문")
+        self.assertEqual(new[0].images, ["https://pds.saramin.co.kr/a.jpg"])
+
+    def test_image_only_detail_keeps_images(self):
+        def details(job_id, today):
+            return Detail(address="a", images=["https://pds.saramin.co.kr/a.jpg"])
+
+        _, new = build(collected(job("1")), config(), {}, TODAY, details={"saramin": details}, sleep=NO_SLEEP)
+        self.assertEqual(new[0].images, ["https://pds.saramin.co.kr/a.jpg"])
+
     def test_detail_fills_required(self):
         def details(job_id, today):
             return Detail(address="a", body="주요업무\n- 컨베이어 설계\n자격요건\n- Creo 3년 이상\n우대사항\n- 영어")

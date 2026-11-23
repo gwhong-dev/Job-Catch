@@ -211,7 +211,7 @@ class _Commute:
         except Exception:
             self.fails[job.source] = self.fails.get(job.source, 0) + 1
             return classify(job, common, track)
-        if detail.address or detail.body or detail.coords:
+        if detail.address or detail.body or detail.coords or detail.images:
             self.read += 1
         else:  # 빈 응답: 사이트 구조가 바뀌었을 수 있다
             self.fails[job.source] = self.fails.get(job.source, 0) + 1
@@ -220,6 +220,7 @@ class _Commute:
         if detail.education and not job.education:
             job.education = detail.education
         job.address = detail.address
+        job.body, job.images = detail.body, list(detail.images)
         if detail.body:
             a = analyze(detail.body, common.extra_tags)
             job.summary, job.required, job.tags = a.duty, a.required, a.tags

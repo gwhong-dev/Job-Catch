@@ -1,6 +1,9 @@
 import unittest
 from datetime import date
 
+from unittest import mock
+
+from jobcatch import saramin
 from jobcatch.saramin import parse_deadline, parse_search_page, search_params
 
 # 실제 페이지 구조를 줄여 만든 가짜 HTML (회사·공고는 예시)
@@ -58,6 +61,34 @@ class ParamsTest(unittest.TestCase):
         self.assertNotIn("loc_mcd", p)
         self.assertEqual(search_params("x", ["신입"], 1)["exp_cd"], "1")
         self.assertEqual(search_params("x", ["경력"], 1)["exp_cd"], "2")
+
+
+class ImagesTest(unittest.TestCase):
+    def test_parse_images_keeps_pds_only(self):
+        html = ('<img src="https://pds.saramin.co.kr/recruit/a.jpg">'
+                '<img src="https://static.saraminimage.co.kr/static/hiring/images/blank.png">'
+                '<img src="https://www.saraminimage.co.kr/recruit/x_logo.png">'
+                '<img src="https://pds.saramin.co.kr/recruit/a.jpg">')
+        self.assertEqual(saramin.parse_images(html), ["https://pds.saramin.co.kr/recruit/a.jpg"])
+
+    def test_protocol_relative_src(self):
+        self.assertEqual(saramin.parse_images('<img src="//pds.saramin.co.kr/r/b.png">'),
+                         ["https://pds.saramin.co.kr/r/b.png"])
+
+    def test_http_upgraded_and_no_src_ignored(self):
+        html = '<img><img src="http://pds.saramin.co.kr/r/c.png"><img src="/rel/d.png">'
+        self.assertEqual(saramin.parse_images(html), ["https://pds.saramin.co.kr/r/c.png"])
+
+    def test_fetch_detail_sets_images(self):
+        body = '<p>근무지 : 서울 중구 세종대로 110</p><img src="https://pds.saramin.co.kr/recruit/a.jpg">'
+
+        class Resp:
+            status_code = 200
+            text = body
+
+        with mock.patch.object(saramin.requests, "get", lambda *a, **k: Resp()):
+            detail = saramin.fetch_detail("1", TODAY, delay_sec=0)
+        self.assertEqual(detail.images, ["https://pds.saramin.co.kr/recruit/a.jpg"])
 
 
 if __name__ == "__main__":

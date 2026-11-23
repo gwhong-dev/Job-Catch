@@ -14,7 +14,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from .models import Detail, Job
-from .summary import page_text
+from .summary import image_urls, page_text
 
 BASE = "https://www.saramin.co.kr"
 SEARCH_URL = BASE + "/zf_user/search/recruit"
@@ -147,14 +147,26 @@ def _get(url: str, job_id: str) -> str:
     return resp.text
 
 
+# 실제 공고 이미지는 pds 에 있다. static.saraminimage.co.kr(빈 그림 · 양식 머리) · 회사 로고 등 꾸밈 이미지는 뺀다
+IMAGE_HOSTS = {"pds.saramin.co.kr"}
+
+
+def parse_images(html: str) -> list[str]:
+    """상세요강 본문의 공고 이미지 주소."""
+    return image_urls(html, IMAGE_HOSTS)
+
+
 def fetch_detail(job_id: str, today: date, delay_sec: float = 2.0) -> Detail:
     """상세요강 본문(작은 페이지)을 먼저 읽고, 본문에 근무지가 없을 때만 공고 페이지에서 주소 · 좌표."""
-    body, address = parse_body(_get(BODY_URL, job_id))
+    html = _get(BODY_URL, job_id)
+    body, address = parse_body(html)
+    images = parse_images(html)
     if address:
-        return Detail(address=address, body=body)
+        return Detail(address=address, body=body, images=images)
     time.sleep(delay_sec)
     detail = parse_detail(_get(DETAIL_URL, job_id), today)
     detail.body = body
+    detail.images = images
     return detail
 
 

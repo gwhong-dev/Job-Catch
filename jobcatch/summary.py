@@ -174,6 +174,21 @@ def _items(segment: str) -> list[str]:
     return items
 
 
+def image_urls(html: str, hosts: set[str]) -> list[str]:
+    """본문 HTML 의 <img src> 중 허용 호스트의 것만, 절대 https 주소로 (순서 유지, 중복 제외)."""
+    out: list[str] = []
+    for img in BeautifulSoup(html, "html.parser").find_all("img"):
+        src = (img.get("src") or "").strip()
+        if src.startswith("//"):
+            src = "https:" + src
+        elif src.startswith("http://"):
+            src = "https://" + src[len("http://"):]
+        host = src[len("https://"):].split("/", 1)[0].lower() if src.startswith("https://") else ""
+        if host in hosts and src not in out:
+            out.append(src)
+    return out
+
+
 def _join(items: list[str]) -> str:
     """항목 경계에서 MAX_DUTY 안으로 자른다. 하나라도 잘리면 끝에 …"""
     if not items or len(_norm(" ".join(items))) < MIN_MEANING:
