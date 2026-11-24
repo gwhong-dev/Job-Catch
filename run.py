@@ -82,7 +82,8 @@ def main(
     if a is None:
         print("AI 요약 꺼짐")
     else:
-        print(f"AI 요약 {a.done}건 / 대상 {a.targets}건 · 실패 {a.failed} · 건너뜀 {a.skipped}"
+        reasons = f" ({a.failure_text()})" if a.failures else ""
+        print(f"AI 요약 {a.done}건 / 대상 {a.targets}건 · 실패 {a.failed}{reasons} · 건너뜀 {a.skipped}"
               f" · 빠진 이미지 {a.dropped_images}"
               f" · 적합도 상 {a.fit['상']} 중 {a.fit['중']} 하 {a.fit['하']}")
         if a.stopped is not None:

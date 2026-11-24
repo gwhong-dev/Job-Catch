@@ -66,7 +66,15 @@ class AiResult:
 
 
 class AiError(Exception):
-    """이 공고만 실패 (규칙 요약을 그대로 쓴다)."""
+    """이 공고만 실패 (규칙 요약을 그대로 쓴다).
+
+    reason: 실행 로그에 원인별 건수로 남길 짧은 이름 ("HTTP 500" · "시간 초과" · "연결 실패" ·
+    "응답 형식 오류" · "시간 한도" · "기타"). 본문 · 응답 · 키는 넣지 않는다.
+    """
+
+    def __init__(self, message: str, reason: str = "기타"):
+        super().__init__(message)
+        self.reason = reason
 
 
 class AiStopped(Exception):
@@ -138,7 +146,7 @@ class Gemini:
         if end is not None:
             remaining = end - self.clock()
             if remaining < MIN_CALL_SEC:
-                raise AiError("AI 단계 시간 한도")
+                raise AiError("AI 단계 시간 한도", "시간 한도")
             timeout = min(TIMEOUT_SEC, remaining)
         try:
             return self.post(
@@ -146,8 +154,10 @@ class Gemini:
                 headers={"x-goog-api-key": self.key, "Content-Type": "application/json"},
                 json=body, timeout=timeout,
             )
+        except requests.Timeout:
+            raise AiError("Gemini 시간 초과", "시간 초과") from None
         except requests.RequestException:
-            raise AiError("Gemini 연결 실패") from None
+            raise AiError("Gemini 연결 실패", "연결 실패") from None
 
     def analyze(self, body: str, images: list[tuple[str, bytes]], fit_rule: str,
                 time_left: float | None = None) -> AiResult:
@@ -175,7 +185,7 @@ class Gemini:
             if delay > MAX_RETRY_SEC:
                 raise AiStopped(429)
             if end is not None and delay + MIN_CALL_SEC > end - self.clock():
-                raise AiError("AI 단계 시간 한도")
+                raise AiError("AI 단계 시간 한도", "시간 한도")
             self.sleep(delay)
             resp = self._send(request, end)
             if resp.status_code == 429:
@@ -183,13 +193,13 @@ class Gemini:
         if resp.status_code in STOP_STATUSES or (resp.status_code == 400 and _key_invalid(resp)):
             raise AiStopped(resp.status_code)
         if resp.status_code != 200:
-            raise AiError(f"Gemini HTTP {resp.status_code}")
+            raise AiError(f"Gemini HTTP {resp.status_code}", f"HTTP {resp.status_code}")
         try:
             data = json.loads(resp.json()["candidates"][0]["content"]["parts"][0]["text"])
         except (ValueError, KeyError, IndexError, TypeError):
-            raise AiError("Gemini 응답 형식 오류") from None
+            raise AiError("Gemini 응답 형식 오류", "응답 형식 오류") from None
         if not isinstance(data, dict):
-            raise AiError("Gemini 응답 형식 오류")
+            raise AiError("Gemini 응답 형식 오류", "응답 형식 오류")
 
         fit = _text(data.get("fit")) if fit_rule else ""
         if fit not in FITS:
@@ -244,6 +254,12 @@ class AiStats:
     dropped_images: int = 0
     fit: dict[str, int] = field(default_factory=lambda: {f: 0 for f in FITS})
     stopped: int | None = None  # 중단시킨 HTTP 상태 (429 · 401 · 403 · 404 · 400)
+    failures: dict[str, int] = field(default_factory=dict)  # 실패 원인별 건수 (AiError.reason)
+
+    def failure_text(self) -> str:
+        """예: "HTTP 500: 6 · 시간 초과: 4" (많은 순). 실패가 없으면 빈 문자열."""
+        items = sorted(self.failures.items(), key=lambda kv: -kv[1])
+        return " · ".join(f"{reason}: {n}" for reason, n in items)
 
     @property
     def all_failed(self) -> bool:
@@ -281,8 +297,10 @@ def enrich_jobs(jobs: list[Job], fit_rules: dict[str, str], ai, download=downloa
             stats.stopped = stop.status
             stats.skipped += len(targets) - i
             break
-        except Exception:  # AiError 와 예상 못 한 오류 모두: 이 공고만 규칙 요약 (AI 때문에 메일이 안 나가면 안 됨)
+        except Exception as err:  # AiError 와 예상 못 한 오류 모두: 이 공고만 규칙 요약 (AI 때문에 메일이 안 나가면 안 됨)
             stats.failed += 1
+            reason = err.reason if isinstance(err, AiError) else "기타"
+            stats.failures[reason] = stats.failures.get(reason, 0) + 1
             continue
         if r.duty:
             job.summary = r.duty

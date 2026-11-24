@@ -248,6 +248,37 @@ class ErrorTest(unittest.TestCase):
                 with self.assertRaises(AiError):
                     gemini(FakePost(resp)).analyze("본문", [], "")
 
+    def test_ai_error_reason_by_cause(self):
+        # 실행 로그에 원인별 건수만 남기려고 예외에 원인 이름을 붙인다 (메시지 · 본문은 찍지 않음)
+        cases = [
+            (Resp(500, {"error": {}}), "HTTP 500"),
+            (Resp(503, {"error": {}}), "HTTP 503"),
+            (Resp(400, {"error": {"status": "INVALID_ARGUMENT"}}), "HTTP 400"),
+            (ok("이건 JSON 이 아님"), "응답 형식 오류"),
+            (ok(["목록"]), "응답 형식 오류"),
+            (Resp(200, {"candidates": []}), "응답 형식 오류"),
+            (requests.Timeout("read timed out"), "시간 초과"),
+            (requests.ConnectTimeout("connect timed out"), "시간 초과"),
+            (requests.ConnectionError("refused"), "연결 실패"),
+            (requests.RequestException("기타 요청 오류"), "연결 실패"),
+        ]
+        for resp, reason in cases:
+            with self.subTest(reason=reason, resp=resp):
+                with self.assertRaises(AiError) as cm:
+                    gemini(FakePost(resp)).analyze("본문", [], "")
+                self.assertEqual(cm.exception.reason, reason)
+
+    def test_time_limit_reason(self):
+        with self.assertRaises(AiError) as cm:
+            gemini(FakePost(ok(GOOD))).analyze("본문", [], "", time_left=2)
+        self.assertEqual(cm.exception.reason, "시간 한도")
+        with self.assertRaises(AiError) as cm:
+            gemini(FakePost(rate_limited("30s"), ok(GOOD))).analyze("본문", [], "", time_left=20)
+        self.assertEqual(cm.exception.reason, "시간 한도")
+
+    def test_ai_error_default_reason(self):
+        self.assertEqual(AiError("x").reason, "기타")
+
     def test_error_message_has_no_body_or_key(self):
         cases = [Resp(500, {"error": {"message": "본문비밀"}}), ok("본문비밀 not json"),
                  requests.ConnectionError(f"key={KEY} 본문비밀")]
@@ -459,6 +490,19 @@ class EnrichTest(unittest.TestCase):
         self.assertEqual(a.summary, "규칙")
         self.assertEqual(stats.dropped_images, 1)  # 내려받기가 깨지면 그 공고 이미지 전부 뺀 것으로
         self.assertEqual(ai.calls[1][1], [])  # 이미지 없이 본문만이라도 보냄
+
+    def test_failures_counted_by_reason(self):
+        ai = FakeGemini(AiError("a", "HTTP 500"), AiError("b", "시간 초과"), AiError("c", "HTTP 500"),
+                        KeyError("x"), R)
+        stats = enrich_jobs([make_job(str(i)) for i in range(5)], {}, ai, download=no_download)
+        self.assertEqual(stats.failed, 4)
+        self.assertEqual(stats.failures, {"HTTP 500": 2, "시간 초과": 1, "기타": 1})
+        self.assertEqual(stats.failure_text(), "HTTP 500: 2 · 시간 초과: 1 · 기타: 1")
+
+    def test_failure_text_sorted_by_count(self):
+        stats = AiStats(failed=5, failures={"시간 초과": 1, "HTTP 500": 4})
+        self.assertEqual(stats.failure_text(), "HTTP 500: 4 · 시간 초과: 1")
+        self.assertEqual(AiStats().failure_text(), "")
 
     def test_dropped_images_summed(self):
         def download(urls):

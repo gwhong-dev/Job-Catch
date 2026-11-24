@@ -169,9 +169,31 @@ class RunTest(unittest.TestCase):
                 raise AiError("Gemini HTTP 500")
 
         env = dict(self.env, GEMINI_API_KEY="k")
-        code, _, err = self.run_ai(lambda key, model: FailingAi(), env)
+        code, out, err = self.run_ai(lambda key, model: FailingAi(), env)
         self.assertEqual(code, 0)
         self.assertIn("경고: AI 요약 전부 실패", err)
+        self.assertIn("실패 1 (기타: 1)", out)
+
+    def test_ai_failure_reasons_logged(self):
+        from jobcatch.ai import AiError
+
+        class FailingAi:
+            def analyze(self, body, images, fit_rule, time_left=None):
+                raise AiError("Gemini HTTP 500 본문비밀", "HTTP 500")
+
+        code, out, err = self.run_ai(lambda key, model: FailingAi(), dict(self.env, GEMINI_API_KEY="k"))
+        self.assertIn("실패 1 (HTTP 500: 1) · 건너뜀 0", out)
+        self.assertNotIn("본문비밀", out + err)
+
+    def test_no_failure_reasons_when_none_failed(self):
+        from jobcatch.ai import AiResult
+
+        class OkAi:
+            def analyze(self, body, images, fit_rule, time_left=None):
+                return AiResult("요약", "", "", "")
+
+        _, out, _ = self.run_ai(lambda key, model: OkAi(), dict(self.env, GEMINI_API_KEY="k"))
+        self.assertIn("실패 0 · 건너뜀 0", out)
 
     def test_unexpected_ai_error_still_mails(self):
         class BrokenAi:
