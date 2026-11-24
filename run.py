@@ -117,10 +117,11 @@ def main(
         print(f"메일 발송 실패 ({reason})", file=sys.stderr)
         return 1
 
-    history.mark_sent(sent_path, today)
     history.record(entries, new_jobs, today)
     history.record_excluded(entries, digest.excluded_after_lookup, today)
     history.save(seen_path, entries)
+    # 보낸 공고 기록을 먼저 남긴다: 날짜만 남고 공고 기록이 빠지면 다음 날 같은 공고가 다시 나간다
+    history.mark_sent(sent_path, today)
     print("메일 발송 완료")
     return 0
 

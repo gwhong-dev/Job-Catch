@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       force:
-        description: "오늘 이미 보냈어도 다시 보내기"
+        description: "오늘 이미 보냈어도 다시 보내기 (아침 뒤 새 공고만 실림)"
         type: boolean
         default: false
 

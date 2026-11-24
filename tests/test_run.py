@@ -94,6 +94,27 @@ class RunTest(unittest.TestCase):
         self.assertEqual(calls, [])  # 사이트 요청도 하지 않음
         self.assertIn("오늘 이미 보냄 — 건너뜀", out.getvalue())
 
+    def test_skip_leaves_history_and_calls_no_ai(self):
+        self.assertEqual(self.main([], sender=Sender())[0], 0)
+        before = self.seen.read_text(encoding="utf-8")
+        made = []
+        out = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(io.StringIO()):
+            code = run.main([], dict(self.env, GEMINI_API_KEY="k"), self.root,
+                            fetchers={"saramin": fake_saramin}, sender=Sender(), today=TODAY,
+                            sleep=lambda s: None, ai_factory=lambda key, model: made.append(key))
+        self.assertEqual(code, 0)
+        self.assertEqual(made, [])
+        self.assertEqual(self.seen.read_text(encoding="utf-8"), before)
+
+    def test_unexpected_send_error_not_marked(self):
+        class Broken:
+            def __call__(self, subject, html, env):
+                raise RuntimeError("x")
+
+        self.assertEqual(self.main([], sender=Broken())[0], 1)
+        self.assertFalse((self.root / "data" / "sent.json").exists())
+
     def test_next_day_sends_again(self):
         from datetime import timedelta
 

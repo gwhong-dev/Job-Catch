@@ -30,6 +30,14 @@ class WorkflowTest(unittest.TestCase):
         self.assertIn("key: sent-${{ github.run_id }}", text)
         self.assertIn("restore-keys: sent-", text)
 
+    def test_saves_only_on_success(self):
+        # 발송이 실패하면 기록 · 날짜를 저장하지 않아야 다음 실행이 다시 보낸다
+        text = WORKFLOW.read_text(encoding="utf-8")
+        for name in ("보낸 기록 저장", "발송 날짜 저장"):
+            step = text.split(f"- name: {name}", 1)[1].split("- name:", 1)[0]
+            self.assertIn("if: success()", step)
+            self.assertIn("actions/cache/save@", step)
+
 
 if __name__ == "__main__":
     unittest.main()
