@@ -72,9 +72,68 @@ class RunTest(unittest.TestCase):
         s = Sender()
         self.assertEqual(self.main([], sender=s)[0], 0)
         self.assertTrue(self.seen.exists())
-        self.assertEqual(self.main([], sender=s)[0], 0)
+        self.assertEqual(self.main(["--force"], sender=s)[0], 0)
         self.assertIn("새 공고 1건", s.subjects[0])
         self.assertIn("새 공고 없음", s.subjects[1])
+
+    def test_second_run_same_day_skips_without_fetching(self):
+        s = Sender()
+        calls = []
+
+        def counting(*a):
+            calls.append(a)
+            return fake_saramin(*a)
+
+        self.assertEqual(self.main([], sender=s)[0], 0)
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            code = run.main([], self.env, self.root, fetchers={"saramin": counting}, sender=s,
+                            today=TODAY, sleep=lambda s: None)
+        self.assertEqual(code, 0)
+        self.assertEqual(len(s.subjects), 1)  # 두 번째는 보내지 않음
+        self.assertEqual(calls, [])  # 사이트 요청도 하지 않음
+        self.assertIn("오늘 이미 보냄 — 건너뜀", out.getvalue())
+
+    def test_next_day_sends_again(self):
+        from datetime import timedelta
+
+        s = Sender()
+        self.assertEqual(self.main([], sender=s)[0], 0)
+        out = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(io.StringIO()):
+            run.main([], self.env, self.root, fetchers={"saramin": fake_saramin}, sender=s,
+                     today=TODAY + timedelta(days=1), sleep=lambda s: None)
+        self.assertEqual(len(s.subjects), 2)
+        self.assertNotIn("건너뜀", out.getvalue())
+
+    def test_failed_send_retried_same_day(self):
+        self.assertEqual(self.main([], sender=Sender(fail=True))[0], 1)
+        self.assertFalse((self.root / "data" / "sent.json").exists())
+        s = Sender()
+        self.assertEqual(self.main([], sender=s)[0], 0)
+        self.assertEqual(len(s.subjects), 1)
+
+    def test_force_sends_again(self):
+        s = Sender()
+        self.main([], sender=s)
+        code, log = self.main(["--force"], sender=s)
+        self.assertEqual(code, 0)
+        self.assertEqual(len(s.subjects), 2)
+        self.assertNotIn("건너뜀", log)
+
+    def test_dry_run_ignores_and_keeps_sent_mark(self):
+        s = Sender()
+        self.main([], sender=s)
+        mark = (self.root / "data" / "sent.json").read_text(encoding="utf-8")
+        code, log = self.main(["--dry-run"], sender=s)
+        self.assertEqual(code, 0)
+        self.assertNotIn("건너뜀", log)  # 미리보기는 언제든
+        self.assertEqual(len(s.subjects), 1)
+        self.assertEqual((self.root / "data" / "sent.json").read_text(encoding="utf-8"), mark)
+
+    def test_dry_run_does_not_mark_sent(self):
+        self.main(["--dry-run"])
+        self.assertFalse((self.root / "data" / "sent.json").exists())
 
     def test_excluded_after_lookup_recorded(self):
         from jobcatch import history

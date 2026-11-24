@@ -46,11 +46,12 @@ PC 를 켜 두지 않아도 GitHub 서버가 매일 06:30(한국 시간)에 돌�
 7. **첫 실행 로그 확인**: "수집 · 메일 발송" 단계 로그에서
    - env 값이 모두 `***` 로 가려져 있는지
    - 두 사이트 수집 건수가 0 이 아닌지
-   - 카카오 키를 넣었다면 "통근 계산 N건" 이 0 이 아닌지
-   - Gemini 키를 넣었다면 "AI 요약 N건" 이 0 이 아닌지 ("AI 요약 꺼짐" 이면 키가 안 넘어간 것)
+   - 카카오 키를 넣었다면 "통근 계산 N건" 이 0 이 아닌지 ("경고: 통근 계산 꺼짐 (집 주소 없음)" 이면 설정의 `home_address` 가 비어 있는 것)
+   - Gemini 키를 넣었다면 "AI 요약 N건" 이 0 이 아닌지 ("AI 요약 꺼짐" 이면 키가 안 넘어간 것). 실패가 있으면 `실패 10 (HTTP 500: 6 · 시간 초과: 4)` 처럼 원인별 건수가 붙습니다
 
 ### 알아 둘 것
 - 공개 저장소의 예약 워크플로는 저장소에 60일 동안 활동이 없으면 GitHub 가 자동으로 끕니다. 메일이 안 오면 Actions 탭에서 다시 켜 주세요.
+- **메일은 하루(한국 시간) 한 번만** 보냅니다. GitHub 예약 실행은 몇 시간 늦거나 한 번 더 돌기도 해서, 그날 발송에 성공한 기록(`data/sent.json`, 날짜만)이 있으면 수집도 하지 않고 "오늘 이미 보냄 — 건너뜀" 만 남깁니다. 발송에 실패한 날은 다음 실행이 다시 보냅니다. 손으로 다시 받고 싶으면 **Run workflow** 에서 "오늘 이미 보냈어도 다시 보내기" 를 켜세요.
 - 보낸 기록(`data/seen.json`, 공고 제목 · 회사)은 Actions 캐시에 있습니다. Settings → Actions → General 에서 외부 기여자의 워크플로 실행에 승인이 필요하도록 두세요 (기본값).
 - 메일에 다 못 실은 "외 N건" 도 보낸 것으로 기록됩니다. 갈래당 카드 수(`max_cards_per_track`)를 늘리면 더 많이 받습니다.
 
@@ -65,7 +66,7 @@ python run.py --dry-run              # 메일 대신 output/mail_<날짜>.html �
 python -m pytest -q                  # 테스트
 ```
 
-`--dry-run` 없이 돌리면 환경변수 `GMAIL_USER`, `GMAIL_APP_PASSWORD`, `MAIL_TO` 로 메일을 보내고 `data/seen.json` 에 보낸 기록을 남깁니다. `KAKAO_REST_KEY` 를 넣으면 통근 시간도 계산하고, `GEMINI_API_KEY` 를 넣으면 AI 요약 · 적합도도 붙습니다.
+`--dry-run` 없이 돌리면 환경변수 `GMAIL_USER`, `GMAIL_APP_PASSWORD`, `MAIL_TO` 로 메일을 보내고 `data/seen.json` 에 보낸 기록, `data/sent.json` 에 보낸 날짜를 남깁니다. 같은 날 다시 보내려면 `python run.py --force`. `KAKAO_REST_KEY` 를 넣으면 통근 시간도 계산하고, `GEMINI_API_KEY` 를 넣으면 AI 요약 · 적합도도 붙습니다.
 
 ## 구조
 
@@ -78,7 +79,7 @@ python -m pytest -q                  # 테스트
 | `jobcatch/summary.py` | 규칙 방식 요약 · 필수조건 · 태그 (AI 가 없거나 실패할 때) |
 | `jobcatch/ai.py` | Gemini 로 카드 요약 · 필수조건 · 적합도 (이미지 포함) |
 | `jobcatch/digest.py` | 수집 → 분류 → 새 공고 / 마감 임박 묶기 |
-| `jobcatch/history.py` | 보낸 공고 기록 |
+| `jobcatch/history.py` | 보낸 공고 기록 · 그날 발송 날짜 |
 | `jobcatch/mail.py` | 메일 HTML · Gmail 발송 |
 | `.github/workflows/daily.yml` | 매일 06:30 KST 실행 |
 

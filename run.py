@@ -2,6 +2,9 @@
 
   python run.py            수집 → 메일 발송 → 보낸 기록 저장
   python run.py --dry-run  메일 대신 output/mail_<날짜>.html 저장 (기록은 건드리지 않음)
+  python run.py --force    오늘(KST) 이미 보냈어도 다시 보냄
+
+하루 한 번만 보낸다: 그날 발송에 성공한 기록(data/sent.json)이 있으면 수집도 하지 않고 끝낸다.
 
 공개 실행 로그에 남으므로 건수만 출력한다 (키워드 · 제목 · 설정 내용은 출력하지 않음).
 """
@@ -40,12 +43,19 @@ def main(
     ai_factory: Callable[[str, str], object] = Gemini,
 ) -> int:
     dry_run = "--dry-run" in argv
+    force = "--force" in argv
     today = today or datetime.now(KST).date()
     try:
         cfg = load_config(env, root / "config.toml")
     except ConfigError as err:
         print(f"설정 오류: {err}", file=sys.stderr)
         return 2
+
+    sent_path = root / "data" / "sent.json"
+    if not dry_run and not force and history.last_sent(sent_path) == today:
+        # 예약 실행이 늦게 한 번 더 돌거나 손으로 다시 돌린 경우: 사이트 요청 · AI 호출도 아낀다
+        print("오늘 이미 보냄 — 건너뜀")
+        return 0
 
     collected = collect(cfg, today, fetchers or FETCHERS, sleep)
     seen_path = root / "data" / "seen.json"
@@ -107,6 +117,7 @@ def main(
         print(f"메일 발송 실패 ({reason})", file=sys.stderr)
         return 1
 
+    history.mark_sent(sent_path, today)
     history.record(entries, new_jobs, today)
     history.record_excluded(entries, digest.excluded_after_lookup, today)
     history.save(seen_path, entries)

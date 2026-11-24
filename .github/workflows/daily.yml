@@ -5,6 +5,11 @@ on:
   schedule:
     - cron: "30 21 * * *"
   workflow_dispatch:
+    inputs:
+      force:
+        description: "오늘 이미 보냈어도 다시 보내기"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -35,9 +40,19 @@ jobs:
           key: seen-${{ github.run_id }}
           restore-keys: seen-
 
+      # 그날 발송 성공 기록: 예약 실행이 늦게 한 번 더 돌아도 메일은 하루 한 번만.
+      # seen.json 과 한 캐시로 묶으면 캐시 버전이 바뀌어 보낸 기록을 잃으므로 따로 둔다
+      - name: 발송 날짜 불러오기
+        uses: actions/cache/restore@v4
+        with:
+          path: data/sent.json
+          key: sent-${{ github.run_id }}
+          restore-keys: sent-
+
       # 검색 기준도 Secret 으로 넘긴다: Variable 은 공개 로그의 env 블록에 평문으로 찍힌다
       - name: 수집 · 메일 발송
-        run: python run.py
+        # force 는 boolean 입력이라 '--force' 아니면 빈 문자열만 들어간다 (예약 실행은 빈 문자열)
+        run: python run.py ${{ inputs.force && '--force' || '' }}
         env:
           JOBCATCH_CONFIG: ${{ secrets.JOBCATCH_CONFIG }}
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
@@ -52,3 +67,10 @@ jobs:
         with:
           path: data/seen.json
           key: seen-${{ github.run_id }}
+
+      - name: 발송 날짜 저장
+        if: success()
+        uses: actions/cache/save@v4
+        with:
+          path: data/sent.json
+          key: sent-${{ github.run_id }}
