@@ -305,6 +305,28 @@ class CommuteTest(unittest.TestCase):
         self.assertTrue(d.commute_failed)
         self.assertEqual([j.job_id for j in new], ["1"])
 
+    def test_kakao_key_without_home_warns(self):
+        # 키는 있는데 집 주소가 비면 통근 계산이 조용히 꺼지지 않게 표시
+        d, _ = build(collected(job("1")), config(), {}, TODAY,
+                     details={"saramin": CountingDetails()}, kakao=FakeKakao(), sleep=NO_SLEEP)
+        self.assertTrue(d.commute_no_home)
+        self.assertFalse(d.commute_failed)
+
+    def test_blank_home_counts_as_missing(self):
+        d, _ = build(collected(job("1")), config(home_address="   "), {}, TODAY,
+                     details={"saramin": CountingDetails()}, kakao=FakeKakao(), sleep=NO_SLEEP)
+        self.assertTrue(d.commute_no_home)
+
+    def test_no_kakao_no_home_is_quiet(self):
+        d, _ = build(collected(job("1")), config(), {}, TODAY,
+                     details={"saramin": CountingDetails()}, kakao=None, sleep=NO_SLEEP)
+        self.assertFalse(d.commute_no_home)
+
+    def test_home_set_no_warning(self):
+        d, _ = build(collected(job("1")), self.cfg(), {}, TODAY,
+                     details={"saramin": CountingDetails()}, kakao=FakeKakao({}), sleep=NO_SLEEP)
+        self.assertFalse(d.commute_no_home)
+
     def test_detail_fills_jobkorea_fields(self):
         def details(job_id, today):
             return Detail(address="a", deadline=TODAY + timedelta(days=20), education="대졸이상",

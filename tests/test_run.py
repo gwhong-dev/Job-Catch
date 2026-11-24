@@ -190,6 +190,15 @@ class RunTest(unittest.TestCase):
         self.assertEqual(len(sender.subjects), 1)
         self.assertNotIn("키비밀", out.getvalue() + err.getvalue())
 
+    def test_kakao_without_home_warns(self):
+        code, log = self.main(["--dry-run"], env=dict(self.env, KAKAO_REST_KEY="k"))
+        self.assertEqual(code, 0)
+        self.assertIn("경고: 통근 계산 꺼짐 (집 주소 없음)", log)
+
+    def test_no_kakao_key_no_home_warning(self):
+        _, log = self.main(["--dry-run"])
+        self.assertNotIn("통근 계산 꺼짐", log)
+
     def test_bad_config_exit_2(self):
         code, log = self.main([], env={"JOBCATCH_CONFIG": "["})
         self.assertEqual(code, 2)

@@ -67,6 +67,8 @@ def main(
           f" · 통근 계산 {commute_n}건")
     for site in digest.failed_sites:
         print(f"경고: {mail.SITE_NAMES.get(site, site)} 수집 실패", file=sys.stderr)
+    if digest.commute_no_home:
+        print("경고: 통근 계산 꺼짐 (집 주소 없음)", file=sys.stderr)
     if digest.commute_failed:
         print("경고: 통근 시간 계산 실패", file=sys.stderr)
     # 분석 적중률 (방법 2로 바꿀지 판단하는 재료). 건수만 남긴다

@@ -127,6 +127,11 @@ class HtmlTest(unittest.TestCase):
     def test_commute_warning(self):
         self.assertIn("⚠ 통근 시간 계산 실패", render_html(digest(commute_failed=True)))
 
+    def test_commute_no_home_warning(self):
+        html = render_html(digest(commute_no_home=True))
+        self.assertIn("⚠ 통근 계산 꺼짐 — 설정에 집 주소(home_address)가 없습니다.", html)
+        self.assertNotIn("통근 계산 꺼짐", render_html(digest()))
+
     def test_overflow_and_flags(self):
         d = digest(new_by_track={"설계": [job("1", flags=["학력 확인"], commute_min=52)], "개발": []},
                    overflow_by_track={"설계": 3}, new_total=4)
