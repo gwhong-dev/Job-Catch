@@ -72,9 +72,89 @@ class RunTest(unittest.TestCase):
         s = Sender()
         self.assertEqual(self.main([], sender=s)[0], 0)
         self.assertTrue(self.seen.exists())
-        self.assertEqual(self.main([], sender=s)[0], 0)
+        self.assertEqual(self.main(["--force"], sender=s)[0], 0)
         self.assertIn("새 공고 1건", s.subjects[0])
         self.assertIn("새 공고 없음", s.subjects[1])
+
+    def test_second_run_same_day_skips_without_fetching(self):
+        s = Sender()
+        calls = []
+
+        def counting(*a):
+            calls.append(a)
+            return fake_saramin(*a)
+
+        self.assertEqual(self.main([], sender=s)[0], 0)
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            code = run.main([], self.env, self.root, fetchers={"saramin": counting}, sender=s,
+                            today=TODAY, sleep=lambda s: None)
+        self.assertEqual(code, 0)
+        self.assertEqual(len(s.subjects), 1)  # 두 번째는 보내지 않음
+        self.assertEqual(calls, [])  # 사이트 요청도 하지 않음
+        self.assertIn("오늘 이미 보냄 — 건너뜀", out.getvalue())
+
+    def test_skip_leaves_history_and_calls_no_ai(self):
+        self.assertEqual(self.main([], sender=Sender())[0], 0)
+        before = self.seen.read_text(encoding="utf-8")
+        made = []
+        out = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(io.StringIO()):
+            code = run.main([], dict(self.env, GEMINI_API_KEY="k"), self.root,
+                            fetchers={"saramin": fake_saramin}, sender=Sender(), today=TODAY,
+                            sleep=lambda s: None, ai_factory=lambda key, model: made.append(key))
+        self.assertEqual(code, 0)
+        self.assertEqual(made, [])
+        self.assertEqual(self.seen.read_text(encoding="utf-8"), before)
+
+    def test_unexpected_send_error_not_marked(self):
+        class Broken:
+            def __call__(self, subject, html, env):
+                raise RuntimeError("x")
+
+        self.assertEqual(self.main([], sender=Broken())[0], 1)
+        self.assertFalse((self.root / "data" / "sent.json").exists())
+
+    def test_next_day_sends_again(self):
+        from datetime import timedelta
+
+        s = Sender()
+        self.assertEqual(self.main([], sender=s)[0], 0)
+        out = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(io.StringIO()):
+            run.main([], self.env, self.root, fetchers={"saramin": fake_saramin}, sender=s,
+                     today=TODAY + timedelta(days=1), sleep=lambda s: None)
+        self.assertEqual(len(s.subjects), 2)
+        self.assertNotIn("건너뜀", out.getvalue())
+
+    def test_failed_send_retried_same_day(self):
+        self.assertEqual(self.main([], sender=Sender(fail=True))[0], 1)
+        self.assertFalse((self.root / "data" / "sent.json").exists())
+        s = Sender()
+        self.assertEqual(self.main([], sender=s)[0], 0)
+        self.assertEqual(len(s.subjects), 1)
+
+    def test_force_sends_again(self):
+        s = Sender()
+        self.main([], sender=s)
+        code, log = self.main(["--force"], sender=s)
+        self.assertEqual(code, 0)
+        self.assertEqual(len(s.subjects), 2)
+        self.assertNotIn("건너뜀", log)
+
+    def test_dry_run_ignores_and_keeps_sent_mark(self):
+        s = Sender()
+        self.main([], sender=s)
+        mark = (self.root / "data" / "sent.json").read_text(encoding="utf-8")
+        code, log = self.main(["--dry-run"], sender=s)
+        self.assertEqual(code, 0)
+        self.assertNotIn("건너뜀", log)  # 미리보기는 언제든
+        self.assertEqual(len(s.subjects), 1)
+        self.assertEqual((self.root / "data" / "sent.json").read_text(encoding="utf-8"), mark)
+
+    def test_dry_run_does_not_mark_sent(self):
+        self.main(["--dry-run"])
+        self.assertFalse((self.root / "data" / "sent.json").exists())
 
     def test_excluded_after_lookup_recorded(self):
         from jobcatch import history
@@ -169,9 +249,31 @@ class RunTest(unittest.TestCase):
                 raise AiError("Gemini HTTP 500")
 
         env = dict(self.env, GEMINI_API_KEY="k")
-        code, _, err = self.run_ai(lambda key, model: FailingAi(), env)
+        code, out, err = self.run_ai(lambda key, model: FailingAi(), env)
         self.assertEqual(code, 0)
         self.assertIn("경고: AI 요약 전부 실패", err)
+        self.assertIn("실패 1 (기타: 1)", out)
+
+    def test_ai_failure_reasons_logged(self):
+        from jobcatch.ai import AiError
+
+        class FailingAi:
+            def analyze(self, body, images, fit_rule, time_left=None):
+                raise AiError("Gemini HTTP 500 본문비밀", "HTTP 500")
+
+        code, out, err = self.run_ai(lambda key, model: FailingAi(), dict(self.env, GEMINI_API_KEY="k"))
+        self.assertIn("실패 1 (HTTP 500: 1) · 건너뜀 0", out)
+        self.assertNotIn("본문비밀", out + err)
+
+    def test_no_failure_reasons_when_none_failed(self):
+        from jobcatch.ai import AiResult
+
+        class OkAi:
+            def analyze(self, body, images, fit_rule, time_left=None):
+                return AiResult("요약", "", "", "")
+
+        _, out, _ = self.run_ai(lambda key, model: OkAi(), dict(self.env, GEMINI_API_KEY="k"))
+        self.assertIn("실패 0 · 건너뜀 0", out)
 
     def test_unexpected_ai_error_still_mails(self):
         class BrokenAi:
@@ -189,6 +291,15 @@ class RunTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(len(sender.subjects), 1)
         self.assertNotIn("키비밀", out.getvalue() + err.getvalue())
+
+    def test_kakao_without_home_warns(self):
+        code, log = self.main(["--dry-run"], env=dict(self.env, KAKAO_REST_KEY="k"))
+        self.assertEqual(code, 0)
+        self.assertIn("경고: 통근 계산 꺼짐 (집 주소 없음)", log)
+
+    def test_no_kakao_key_no_home_warning(self):
+        _, log = self.main(["--dry-run"])
+        self.assertNotIn("통근 계산 꺼짐", log)
 
     def test_bad_config_exit_2(self):
         code, log = self.main([], env={"JOBCATCH_CONFIG": "["})

@@ -108,6 +108,7 @@ class Digest:
     failed_sites: list[str]
     new_total: int
     commute_failed: bool = False
+    commute_no_home: bool = False  # 카카오 키는 있는데 집 주소가 비어 통근 계산이 꺼짐
     excluded_after_lookup: list[Job] = field(default_factory=list)  # 다음 날 다시 조회하지 않게 기록
     deferred: int = 0  # 상세 조회 상한 · 시간에 걸려 내일 다시 볼 공고 수 (보낸 기록에 남기지 않음)
     detail_read: int = 0
@@ -151,9 +152,11 @@ class _Commute:
         self.route_tries = 0
         self.route_found = 0
         self.home = None
-        if kakao and cfg.common.home_address:
+        home_address = cfg.common.home_address.strip()
+        self.no_home = kakao is not None and not home_address
+        if kakao and home_address:
             try:
-                self.home = kakao.geocode(cfg.common.home_address)
+                self.home = kakao.geocode(home_address)
             except KakaoUnavailable:
                 self.home = None
             if self.home is None:
@@ -346,6 +349,7 @@ def build(
         failed_sites=list(collected.failed_sites),
         new_total=len(kept),
         commute_failed=commute.failed or (commute.route_tries >= 3 and commute.route_found == 0),
+        commute_no_home=commute.no_home,
         excluded_after_lookup=excluded_after_lookup,
         deferred=commute.deferred,
         detail_read=commute.read,

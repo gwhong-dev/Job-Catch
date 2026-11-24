@@ -125,5 +125,31 @@ class HistoryTest(unittest.TestCase):
         self.assertEqual(history.load(self.path), {})
 
 
+class LastSentTest(unittest.TestCase):
+    """그날 메일 발송에 성공했는지 (data/sent.json): 하루 한 번만 보내려고."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.path = Path(self.tmp.name) / "data" / "sent.json"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_missing_file_is_none(self):
+        self.assertIsNone(history.last_sent(self.path))
+
+    def test_mark_and_read(self):
+        history.mark_sent(self.path, TODAY)
+        self.assertEqual(history.last_sent(self.path), TODAY)
+        self.assertEqual(json.loads(self.path.read_text(encoding="utf-8")), {"date": "2026-11-22"})
+
+    def test_broken_file_is_none(self):
+        self.path.parent.mkdir(parents=True)
+        for text in ("{", "[]", '{"date": 3}', '{"date": "어제"}', "{}"):
+            with self.subTest(text=text):
+                self.path.write_text(text, encoding="utf-8")
+                self.assertIsNone(history.last_sent(self.path))
+
+
 if __name__ == "__main__":
     unittest.main()

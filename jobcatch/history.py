@@ -128,3 +128,20 @@ def prune(entries: dict[str, Entry], today: date) -> None:
             expired = e.first_sent + timedelta(days=60) < today
         if expired:
             del entries[key]
+
+
+# ---- 그날 발송 성공 기록 (data/sent.json): 예약 실행이 하루에 두 번 돌아도 메일은 한 번만 ----
+
+
+def last_sent(path: Path) -> date | None:
+    """마지막으로 메일 발송에 성공한 날 (KST). 없거나 깨졌으면 None (그날은 다시 보낸다)."""
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        return date.fromisoformat(raw["date"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def mark_sent(path: Path, day: date) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"date": day.isoformat()}), encoding="utf-8")

@@ -2,6 +2,9 @@
 
   python run.py            수집 → 메일 발송 → 보낸 기록 저장
   python run.py --dry-run  메일 대신 output/mail_<날짜>.html 저장 (기록은 건드리지 않음)
+  python run.py --force    오늘(KST) 이미 보냈어도 다시 보냄
+
+하루 한 번만 보낸다: 그날 발송에 성공한 기록(data/sent.json)이 있으면 수집도 하지 않고 끝낸다.
 
 공개 실행 로그에 남으므로 건수만 출력한다 (키워드 · 제목 · 설정 내용은 출력하지 않음).
 """
@@ -40,12 +43,19 @@ def main(
     ai_factory: Callable[[str, str], object] = Gemini,
 ) -> int:
     dry_run = "--dry-run" in argv
+    force = "--force" in argv
     today = today or datetime.now(KST).date()
     try:
         cfg = load_config(env, root / "config.toml")
     except ConfigError as err:
         print(f"설정 오류: {err}", file=sys.stderr)
         return 2
+
+    sent_path = root / "data" / "sent.json"
+    if not dry_run and not force and history.last_sent(sent_path) == today:
+        # 예약 실행이 늦게 한 번 더 돌거나 손으로 다시 돌린 경우: 사이트 요청 · AI 호출도 아낀다
+        print("오늘 이미 보냄 — 건너뜀")
+        return 0
 
     collected = collect(cfg, today, fetchers or FETCHERS, sleep)
     seen_path = root / "data" / "seen.json"
@@ -67,6 +77,8 @@ def main(
           f" · 통근 계산 {commute_n}건")
     for site in digest.failed_sites:
         print(f"경고: {mail.SITE_NAMES.get(site, site)} 수집 실패", file=sys.stderr)
+    if digest.commute_no_home:
+        print("경고: 통근 계산 꺼짐 (집 주소 없음)", file=sys.stderr)
     if digest.commute_failed:
         print("경고: 통근 시간 계산 실패", file=sys.stderr)
     # 분석 적중률 (방법 2로 바꿀지 판단하는 재료). 건수만 남긴다
@@ -80,7 +92,8 @@ def main(
     if a is None:
         print("AI 요약 꺼짐")
     else:
-        print(f"AI 요약 {a.done}건 / 대상 {a.targets}건 · 실패 {a.failed} · 건너뜀 {a.skipped}"
+        reasons = f" ({a.failure_text()})" if a.failures else ""
+        print(f"AI 요약 {a.done}건 / 대상 {a.targets}건 · 실패 {a.failed}{reasons} · 건너뜀 {a.skipped}"
               f" · 빠진 이미지 {a.dropped_images}"
               f" · 적합도 상 {a.fit['상']} 중 {a.fit['중']} 하 {a.fit['하']}")
         if a.stopped is not None:
@@ -107,6 +120,8 @@ def main(
     history.record(entries, new_jobs, today)
     history.record_excluded(entries, digest.excluded_after_lookup, today)
     history.save(seen_path, entries)
+    # 보낸 공고 기록을 먼저 남긴다: 날짜만 남고 공고 기록이 빠지면 다음 날 같은 공고가 다시 나간다
+    history.mark_sent(sent_path, today)
     print("메일 발송 완료")
     return 0
 
